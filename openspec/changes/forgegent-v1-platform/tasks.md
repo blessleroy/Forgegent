@@ -5,9 +5,9 @@
 - [x] 1.1 搭建 pnpm monorepo（apps/web、apps/runner、packages/shared、packages/pi-adapter），配置 TypeScript/ESLint/测试框架；验证 `pnpm build && pnpm test` 全绿
 - [x] 1.2 锁定 `@earendil-works/pi-coding-agent` 精确版本并写入 pi-adapter 占位封装；验证 lockfile 固化且 `import { createAgentSession }` 类型解析通过
 - [x] 1.3 以 Drizzle 建 SQLite（WAL）schema：PRD §9 全表 + `departments`/`user_departments`（N3）+ `task_file_refs`（D23）+ `studio_conversations`（N4）+ `tasks.origin`；验证 migration 可重复执行且表结构测试通过
-- [ ] 1.4 集成 Better Auth（登录/退出/会话过期/密码哈希、HttpOnly+SameSite Cookie、登录限流）；验证会话过期拒绝与暴力限流的集成测试
-- [ ] 1.5 实现三角色与最小授权中间件（服务端角色判定）；验证"员工伪造 API 建 Agent → 403 + 审计留痕"测试
-- [ ] 1.6 实现环境变量初始 Admin（空用户表时创建，首登强制改密）；验证对应集成测试
+- [x] 1.4 集成 Better Auth（登录/退出/会话过期/密码哈希、HttpOnly+SameSite Cookie、登录限流）；验证会话过期拒绝与暴力限流的集成测试
+- [x] 1.5 实现三角色与最小授权中间件（服务端角色判定）；验证"员工伪造 API 建 Agent → 403 + 审计留痕"测试
+- [x] 1.6 实现环境变量初始 Admin（空用户表时创建，首登强制改密）；验证对应集成测试
 - [x] 1.7 实现本地文件存储层（上传/下载/删除/配额、路径穿越与符号链接防护、服务端 ACL）；验证单测覆盖 AT-08 攻击向量与配额拒绝
 - [x] 1.8 建立结构化 JSON 日志 + audit_logs 写入（脱敏规则）；验证日志中不含明文密钥的断言测试
 

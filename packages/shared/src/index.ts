@@ -73,3 +73,5 @@ export const TASK_TRANSITIONS: Readonly<Record<TaskState, readonly TaskState[]>>
 export function canTransition(from: TaskState, to: TaskState): boolean {
   return TASK_TRANSITIONS[from].includes(to);
 }
+
+export * from "./permissions.js";

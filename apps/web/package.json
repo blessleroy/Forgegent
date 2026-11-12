@@ -8,6 +8,10 @@
     "start": "next start"
   },
   "dependencies": {
+    "@forgegent/db": "workspace:*",
+    "@forgegent/shared": "workspace:*",
+    "better-auth": "^1.7.20",
+    "drizzle-orm": "^0.38.4",
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

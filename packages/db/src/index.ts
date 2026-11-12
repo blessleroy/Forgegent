@@ -16,6 +16,26 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 export type ForgegentDb = BetterSQLite3Database<typeof schema>;
 
+export { audit, logJson, redact } from "./audit.js";
+export type { AuditEvent } from "./audit.js";
+export {
+  ensureInitialAdmin,
+  rolesForUser,
+  isUserActive,
+} from "./bootstrap.js";
+export type { InitialAdminEnv, InitialAdminResult } from "./bootstrap.js";
+
+/** Raw parameterized SQL escape hatch (avoid cross-package drizzle typing). */
+export function rawExec(
+  db: ForgegentDb,
+  sql: string,
+  ...params: unknown[]
+): void {
+  type WithClient = { $client: { prepare(s: string): { run(...p: unknown[]): unknown } } };
+  (db as unknown as WithClient).$client.prepare(sql).run(...params);
+}
+export * from "./schema.js";
+
 export function createDb(dbPath: string): ForgegentDb {
   const sqlite = new Database(dbPath);
   sqlite.pragma("journal_mode = WAL");

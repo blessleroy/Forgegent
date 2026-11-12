@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL,
   username TEXT,
-  password_hash TEXT NOT NULL,
+  password_hash TEXT,
   status TEXT NOT NULL DEFAULT 'active',
   must_change_password INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
