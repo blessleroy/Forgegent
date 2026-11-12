@@ -1,0 +1,63 @@
+# permission-enforcement Spec
+
+## Purpose
+
+Agent 级权限执行层：有效权限 = 用户 ∩ Agent 发布版本 ∩ 任务的三方交集、默认拒绝、Tool Gateway 逐调用校验、文件与检索 ACL、拒绝留痕——全部在服务端与执行端落实，不依赖 Prompt 或前端。
+
+## ADDED Requirements
+
+### Requirement: 三方权限交集与默认拒绝
+
+有效权限 MUST 等于当前用户授权 ∩ Agent 发布版本授权 ∩ 当前任务授权；所有未列入白名单的操作 MUST 默认拒绝。
+
+#### Scenario: 交集计算
+- **WHEN** 用户对某资源有权、但当前 Agent 发布版本未声明该资源
+- **THEN** 该 Agent 在此任务中对该资源的访问被拒绝
+
+### Requirement: 无权不可见不可用
+
+用户无 Agent 使用权限时，Hub MUST NOT 展示该 Agent，API MUST 拒绝创建任务。
+
+#### Scenario: Hub 与 API 双重一致（AT-03 支撑）
+- **WHEN** 未被授权的员工浏览 Hub 或直接调用任务创建 API
+- **THEN** Hub 不显示该应用，API 返回拒绝
+
+### Requirement: 能力锁定
+
+Agent 只能使用其发布版本指定的模型、Skills、Tools、资源与网络目标；用户提示词 MUST NOT 增加这些能力。
+
+#### Scenario: 伪造配置变更无效（AT-06）
+- **WHEN** 员工伪造 API 调用尝试更改模型/Skill/Tool 配置
+- **THEN** 返回 403 或相应拒绝，生产配置不变
+
+### Requirement: Tool Gateway 逐调用校验
+
+每次 Tool 调用 MUST 由可信服务端 Gateway 校验用户/Agent/Task/动作/资源/参数，授权判定 MUST NOT 仅依赖 Prompt 或 Tool 描述；伪造 Tool 参数访问未授权资源 MUST 在执行前被拒绝（AT-18）。
+
+#### Scenario: 伪造参数执行前拦截
+- **WHEN** Agent 以篡改的资源参数发起 Tool 调用
+- **THEN** Gateway 在执行前拒绝该调用并留痕
+
+### Requirement: 文件与数据访问 ACL
+
+文件访问、企业资料检索、下载与写入 MUST 检查发起用户的 ACL；Agent 连接了某数据源 MUST NOT 等同于用户拥有该源全部数据的访问权。
+
+#### Scenario: 连库不等于全量访问
+- **WHEN** Agent 绑定了历史方案库，但发起员工仅对部分方案有 ACL
+- **THEN** 该员工任务中仅能检索到其有权访问的方案（AT-10）
+
+### Requirement: 拒绝与安全事件留痕
+
+拒绝事件 MUST 记录到审计日志，含时间、用户、Agent、动作、资源标识与原因，MUST NOT 记录秘密值。
+
+#### Scenario: 越权尝试可追溯
+- **WHEN** 任意权限拒绝发生
+- **THEN** 审计日志含完整追查要素且不含任何凭证内容
+
+### Requirement: 业务职责共同约束
+
+Agent 的业务职责（如只做海报）MUST 通过 UI Schema、任务类型、系统指令与结构化输出校验共同约束；系统 MUST NOT 声称仅靠 Prompt 可百分百避免回答偏题。
+
+#### Scenario: 偏题输出被结构化校验拦截
+- **WHEN** 海报 Agent 输出不含图像产物的响应
+- **THEN** 结构化输出校验判定不合规并按失败处理，而非静默接受
