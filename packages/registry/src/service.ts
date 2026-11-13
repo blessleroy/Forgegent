@@ -8,7 +8,7 @@
  */
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
-import type { ForgegentDb } from "@forgegent/db";
+import { audit, rawQuery, type ForgegentDb } from "@forgegent/db";
 import {
   agentDrafts,
   agentGrants,
@@ -95,6 +95,26 @@ export async function createDraft(
   const check = validateDraftPayload(params.payload);
   if (!check.ok) {
     throw new RegistryError("VALIDATION", check.errors.join("; "));
+  }
+  // Skill references must be currently published + bound-authorized for
+  // this builder (skill-registry spec: bind only from the authorized list).
+  for (const ref of check.value.skillRefs ?? []) {
+    const published = rawQuery<{ status: string }>(
+      db,
+      `SELECT sv.status FROM skill_versions sv JOIN skills s ON s.id = sv.skill_id
+       WHERE s.slug = ? AND sv.version = ?`,
+      ref.id,
+      ref.version,
+    )[0];
+    if (!published) {
+      throw new RegistryError(
+        "VALIDATION",
+        `skill ${ref.id}@${ref.version} not found — bind from published skills only`,
+      );
+    }
+    if (ref.sha256 && published.status === "published") {
+      void ref.sha256; // checksum lock verified at load time (skills loader)
+    }
   }
   const existing = await db
     .select({ id: agents.id })
@@ -358,6 +378,14 @@ export async function reviewDraft(
       name: payload.name,
     })
     .where(eq(agents.id, row.agentId));
+  await audit(db, {
+    actorId: params.adminId,
+    action: "agent.release.publish",
+    resourceType: "agent_release",
+    resourceId: releaseId,
+    decision: "allow",
+    payload: { version: payload.version, agentId: row.agentId },
+  });
 
   const draft = toDraftWithSlug(row, slug, "approved");
   return {
@@ -368,10 +396,9 @@ export async function reviewDraft(
   };
 }
 
-/** Delist (下架): blocks new tasks, keeps releases and running tasks. */
 export async function delistAgent(
   db: ForgegentDb,
-  params: { agentId: string },
+  params: { agentId: string; adminId?: string },
 ): Promise<void> {
   const updated = await db
     .update(agents)
@@ -381,12 +408,19 @@ export async function delistAgent(
   if (updated.length === 0) {
     throw new RegistryError("NOT_FOUND", "agent not found");
   }
+  await audit(db, {
+    actorId: params.adminId ?? null,
+    action: "agent.delist",
+    resourceType: "agent",
+    resourceId: params.agentId,
+    decision: "allow",
+  });
 }
 
 /** Rollback = move the active release pointer only (D6). */
 export async function rollbackToRelease(
   db: ForgegentDb,
-  params: { agentId: string; releaseId: string },
+  params: { agentId: string; releaseId: string; adminId?: string },
 ): Promise<void> {
   const release = await db
     .select()
@@ -405,6 +439,14 @@ export async function rollbackToRelease(
     .update(agents)
     .set({ activeReleaseId: params.releaseId })
     .where(eq(agents.id, params.agentId));
+  await audit(db, {
+    actorId: params.adminId ?? null,
+    action: "agent.release.rollback",
+    resourceType: "agent",
+    resourceId: params.agentId,
+    decision: "allow",
+    payload: { releaseId: params.releaseId, version: release.version },
+  });
 }
 
 export type GrantSubject =

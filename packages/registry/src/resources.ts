@@ -11,6 +11,24 @@
 import { rawExec, rawQuery } from "@forgegent/db";
 import type { ForgegentDb } from "@forgegent/db";
 
+export type ResourceKind = "model_endpoint" | "shared_doc" | "http_tool";
+
+const VALID_RESOURCE_KINDS = new Set<ResourceKind>([
+  "model_endpoint",
+  "shared_doc",
+  "http_tool",
+]);
+
+/** V1 resource kinds are a closed set (resource-governance spec). */
+export function validateResourceKind(kind: string): ResourceKind {
+  if (!VALID_RESOURCE_KINDS.has(kind as ResourceKind)) {
+    throw new Error(
+      `invalid resource kind "${kind}" — V1 allows model_endpoint/shared_doc/http_tool only`,
+    );
+  }
+  return kind as ResourceKind;
+}
+
 export interface HttpToolConfig {
   name: string;
   endpoint: string;

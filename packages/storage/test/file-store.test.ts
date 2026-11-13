@@ -163,4 +163,40 @@ describe("FileStore (task 1.7 — personal-files spec)", () => {
       detail: { code: "NOT_FOUND" },
     });
   });
+
+  it("W2: files referenced by a live task cannot be deleted (D23)", async () => {
+    await seedUser("ref-user");
+    const store = new FileStore(root, db);
+    const { id } = await store.put({
+      ownerId: "ref-user",
+      filename: "in-use.txt",
+      mime: "text/plain",
+      bytes: Buffer.from("x"),
+    });
+    // A running task references the file as input.
+    db.$client
+      .prepare("INSERT OR IGNORE INTO users (id, email) VALUES ('rel-owner', 'rel@f.local')")
+      .run();
+    db.$client
+      .prepare("INSERT OR IGNORE INTO agents (id, slug, name, owner_id) VALUES ('rel-agent', 'rel-agent', 'R', 'rel-owner')")
+      .run();
+    db.$client
+      .prepare("INSERT OR IGNORE INTO agent_releases (id, agent_id, version, immutable_package_path, checksum, published_by) VALUES ('rel', 'rel-agent', '1.0.0', '/tmp', 'c', 'rel-owner')")
+      .run();
+    db.$client
+      .prepare("INSERT OR IGNORE INTO tasks (id, owner_id, agent_release_id, state, origin, mode) VALUES ('ref-task', 'ref-user', 'rel', 'running', 'staff', 'restricted')")
+      .run();
+    db.$client
+      .prepare("INSERT OR REPLACE INTO task_file_refs (task_id, file_id, direction) VALUES ('ref-task', ?, 'input')")
+      .run(id);
+    await expect(store.softDelete("ref-user", id)).rejects.toMatchObject({
+      detail: { code: "REFERENCED_BY_LIVE_TASK", taskId: "ref-task" },
+    });
+    // Once the task reaches a terminal state, deletion proceeds.
+    db.$client
+      .prepare("UPDATE tasks SET state = 'completed' WHERE id = 'ref-task'")
+      .run();
+    await store.softDelete("ref-user", id);
+    expect(await store.list("ref-user")).toHaveLength(0);
+  });
 });

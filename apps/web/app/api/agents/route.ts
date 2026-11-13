@@ -75,12 +75,13 @@ export async function POST(request: Request) {
       );
       await setAgentGrants(db, { agentId: body.agentId, grants });
     } else if (body.action === "delist") {
-      await delistAgent(db, { agentId: body.agentId });
+      await delistAgent(db, { agentId: body.agentId, adminId: guard.context.userId });
     } else if (body.action === "rollback") {
       if (!body.releaseId) throw new Error("releaseId required for rollback");
       await rollbackToRelease(db, {
         agentId: body.agentId,
         releaseId: body.releaseId,
+        adminId: guard.context.userId,
       });
     }
     await audit(db, {

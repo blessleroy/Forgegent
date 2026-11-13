@@ -10,7 +10,9 @@
 import { join } from "node:path";
 import {
   appendTaskEvent,
+  rawExec,
   rawQuery,
+  readTaskEvents,
   type ForgegentDb,
 } from "@forgegent/db";
 import { FileStore } from "@forgegent/storage";
@@ -60,7 +62,13 @@ export async function executeRestrictedTask(
   task: ClaimedTask,
   deps: ExecutorDeps,
 ): Promise<"completed" | "failed"> {
-  appendTaskEvent(db, task.id, "run.started", { mode: task.mode });
+  const requestId = crypto.randomUUID();
+  const startedAt = Date.now();
+  appendTaskEvent(db, task.id, "run.started", {
+    mode: task.mode,
+    requestId,
+    releaseId: task.agentReleaseId,
+  });
 
   const releaseRow = rawQuery<{ checksum: string; immutable_package_path: string }>(
     db,
@@ -88,6 +96,8 @@ export async function executeRestrictedTask(
   const endpoint = resolveModelEndpoint(db);
   if (!endpoint) {
     appendTaskEvent(db, task.id, "run.failed", {
+      errorType: "model-endpoint-missing",
+      requestId,
       reason: "模型端点未配置 — 请管理员在资源配置中添加 OpenAI 兼容端点 / model endpoint not configured",
     });
     return "failed";
@@ -103,7 +113,36 @@ export async function executeRestrictedTask(
       userMessage: task.inputSummary ?? "",
       tools,
     });
+    // Token accounting (V1 estimate: chars/4; refine with real usage data
+    // when the model endpoint reports it). Observability spec (task 9.6).
+    const inputTokens = Math.ceil((task.inputSummary ?? "").length / 4);
+    const outputTokens = Math.ceil(output.length / 4);
+    // Token/费用预算（audit/observability + N6 结构化失败）。
+    const budget = typeof task.budget === "string"
+      ? (JSON.parse(task.budget) as { maxTokens?: number; maxCostCents?: number })
+      : null;
+    if (budget?.maxTokens && inputTokens + outputTokens > budget.maxTokens) {
+      appendTaskEvent(db, task.id, "run.failed", {
+        errorType: "token-budget-exceeded",
+        requestId,
+        durationMs: Date.now() - startedAt,
+        reason: `Token 预算超限（${inputTokens + outputTokens} > ${budget.maxTokens}）— 安全终止`,
+      });
+      rawExec(
+        db,
+        "INSERT INTO usage_records (id, task_id, model, input_tokens, output_tokens, estimated_cost) VALUES (?, ?, ?, ?, ?, 0)",
+        crypto.randomUUID(),
+        task.id,
+        endpoint.model,
+        inputTokens,
+        outputTokens,
+      );
+      return "failed";
+    }
     appendTaskEvent(db, task.id, "agent.output", { text: output.slice(0, 2000) });
+    const toolCalls = readTaskEvents(db, task.id).filter((e) =>
+      e.eventType.startsWith("tool."),
+    ).length;
 
     // Artifact write-back (PRD §8.2 step 6): validated then persisted to the
     // owner's personal space.
@@ -120,10 +159,30 @@ export async function executeRestrictedTask(
         filename: `poster-${snapshot.version}.png`,
       });
     }
-    appendTaskEvent(db, task.id, "run.completed", {});
+    appendTaskEvent(db, task.id, "run.completed", {
+      requestId,
+      durationMs: Date.now() - startedAt,
+      toolCalls,
+      model: endpoint.model,
+      inputTokens,
+      outputTokens,
+    });
+    // Usage record (audit-observability spec): per-task model cost trail.
+    rawExec(
+      db,
+      "INSERT INTO usage_records (id, task_id, model, input_tokens, output_tokens, estimated_cost) VALUES (?, ?, ?, ?, ?, 0)",
+      crypto.randomUUID(),
+      task.id,
+      endpoint.model,
+      inputTokens,
+      outputTokens,
+    );
     return "completed";
   } catch (error) {
     appendTaskEvent(db, task.id, "run.failed", {
+      errorType: "agent-error",
+      requestId,
+      durationMs: Date.now() - startedAt,
       reason: String((error as Error).message).slice(0, 500),
     });
     return "failed";
