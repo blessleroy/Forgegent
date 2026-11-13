@@ -199,6 +199,9 @@ importers:
       '@forgegent/storage':
         specifier: workspace:*
         version: link:../../packages/storage
+      '@forgegent/studio':
+        specifier: workspace:*
+        version: link:../../packages/studio
       '@forgegent/tasks':
         specifier: workspace:*
         version: link:../../packages/tasks
@@ -221,6 +224,9 @@ importers:
       '@forgegent/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@forgegent/studio':
+        specifier: workspace:*
+        version: link:../../packages/studio
       '@forgegent/tasks':
         specifier: workspace:*
         version: link:../../packages/tasks
@@ -343,6 +349,31 @@ importers:
       drizzle-orm:
         specifier: ^0.38.0
         version: 0.38.4(@types/better-sqlite3@7.6.13)(@types/react@19.3.0)(better-sqlite3@13.1.1)(react@19.3.1)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/studio:
+    dependencies:
+      '@forgegent/db':
+        specifier: workspace:*
+        version: link:../db
+      '@forgegent/registry':
+        specifier: workspace:*
+        version: link:../registry
+      '@forgegent/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@forgegent/tasks':
+        specifier: workspace:*
+        version: link:../tasks
+      drizzle-orm:
+        specifier: 0.38.4
+        version: 0.38.4(@types/better-sqlite3@7.6.13)(@types/react@19.3.0)(better-sqlite3@13.1.1)(kysely@0.29.8)(react@19.3.1)
     devDependencies:
       '@types/node':
         specifier: ^22.10.0

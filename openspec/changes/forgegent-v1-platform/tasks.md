@@ -45,12 +45,12 @@
 
 ## 6. M2 Studio 闭环（V1 核心）
 
-- [ ] 6.1 实现 Builder Agent 对话服务（studio_conversations 持久化，N4）：自然语言 → 结构化需求清单 + 待补信息 + 拟生成组成；验证 AT-01（生成含 Prompt/Skill/UI Schema/工具绑定/测试用例的草稿）。M2 过渡：Builder Agent 以 restricted 模式运行（design D11），M3 由 7.x 切沙盒
-- [ ] 6.2 实现对话修改草稿（作用当前草稿 + 差异展示）；验证 AT-02（修改同步草稿与预览、不影响已发布版本）
-- [ ] 6.3 实现员工视角预览与隔离测试运行（origin=test，仅 Studio 可见，测试资源限 Admin 授权范围）；验证 Builder 测试任务不进员工 /tasks
-- [ ] 6.4 实现提审/撤回/复制发布版本成新草稿（D19/D20）与提审自动测试闸门（N5：失败仍可提交、结果附审核者）；验证非属主操作被拒与闸门行为测试
-- [ ] 6.5 实现 `document-flow` 模板（资料上传→大纲确认→进度→下载，D24）；验证组件测试与 AT-17（无 Builder 角色者 Studio 页面与 API 均拒绝）
-- [ ] 6.6 M2 验收 E2E：不经手工改代码，Builder 从自然语言创建新 Agent → 审核 → 发布 → 员工使用；验证完整链路脚本通过
+- [x] 6.1 实现 Builder Agent 对话服务（studio_conversations 持久化，N4）：自然语言 → 结构化需求清单 + 待补信息 + 拟生成组成；验证 AT-01（生成含 Prompt/Skill/UI Schema/工具绑定/测试用例的草稿）。M2 过渡：Builder Agent 以 restricted 模式运行（design D11），M3 由 7.x 切沙盒
+- [x] 6.2 实现对话修改草稿（作用当前草稿 + 差异展示）；验证 AT-02（修改同步草稿与预览、不影响已发布版本）
+- [x] 6.3 实现员工视角预览与隔离测试运行（origin=test，仅 Studio 可见，测试资源限 Admin 授权范围）；验证 Builder 测试任务不进员工 /tasks
+- [x] 6.4 实现提审/撤回/复制发布版本成新草稿（D19/D20）与提审自动测试闸门（N5：失败仍可提交、结果附审核者）；验证非属主操作被拒与闸门行为测试
+- [x] 6.5 实现 `document-flow` 模板（资料上传→大纲确认→进度→下载，D24）；验证组件测试与 AT-17（无 Builder 角色者 Studio 页面与 API 均拒绝）
+- [x] 6.6 M2 验收 E2E：不经手工改代码，Builder 从自然语言创建新 Agent → 审核 → 发布 → 员工使用；验证完整链路脚本通过
 
 ## 7. M3 沙盒与执行隔离
 

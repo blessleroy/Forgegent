@@ -48,17 +48,26 @@ export default function AppTaskPage() {
   }, [params.slug]);
 
   async function submit() {
-    if (!schema || !agent) return;
-    const check = validateFormInput(schema, values);
-    if (!check.ok) {
-      setError(check.errors.map((e) => e.message).join("; "));
-      return;
+    if (!agent) return;
+    let inputSummary: string;
+    if (schema) {
+      const check = validateFormInput(schema, values);
+      if (!check.ok) {
+        setError(check.errors.map((e) => e.message).join("; "));
+        return;
+      }
+      inputSummary = schema.fields
+        .map((f) => `${f.label}: ${values[f.name] ?? ""}`)
+        .join("\n");
+    } else {
+      if (!values.requirements?.trim()) {
+        setError("请描述你的需求 / requirements required");
+        return;
+      }
+      inputSummary = `需求: ${values.requirements}`;
     }
     setError(null);
     setSubmitting(true);
-    const inputSummary = schema.fields
-      .map((f) => `${f.label}: ${values[f.name] ?? ""}`)
-      .join("\n");
     const res = await fetch("/api/tasks", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -78,12 +87,40 @@ export default function AppTaskPage() {
       <main style={{ padding: "2rem", fontFamily: "system-ui" }}>{t("common.loading")}</main>
     );
   }
+  if (!schema) {
+    // document-flow drafts render their stage blocks (D24: upload → outline
+    // → progress → download); the message-style interaction drives execution.
+    return (
+      <main style={{ maxWidth: 700, margin: "2rem auto", fontFamily: "system-ui" }}>
+        <h1>{agent.name}</h1>
+        <p style={{ color: "#666" }}>{agent.description}</p>
+        <ol style={{ lineHeight: 2 }}>
+          <li>📄 上传客户需求 / 资料文件</li>
+          <li>🗂️ 确认生成大纲</li>
+          <li>⏳ 等待文档生成</li>
+          <li>⬇️ 下载成果文档</li>
+        </ol>
+        <h2>{t("app.input")}</h2>
+        <textarea
+          rows={4}
+          placeholder="粘贴或描述你的需求…"
+          value={values.requirements ?? ""}
+          onChange={(e) => setValues({ ...values, requirements: e.target.value })}
+          style={{ padding: 8, width: "100%" }}
+        />
+        {error ? <p style={{ color: "#c02929" }}>{error}</p> : null}
+        <button onClick={submit} disabled={submitting} style={{ padding: "10px 20px" }}>
+          {submitting ? "…" : t("app.submit")}
+        </button>
+      </main>
+    );
+  }
   return (
     <main style={{ maxWidth: 700, margin: "2rem auto", fontFamily: "system-ui" }}>
       <h1>{agent.name}</h1>
       <p style={{ color: "#666" }}>{agent.description}</p>
       <h2>{t("app.input")}</h2>
-      {schema?.fields.map((field) => (
+      {schema.fields.map((field) => (
         <div key={field.name} style={{ marginBottom: 12 }}>
           <label style={{ display: "block", marginBottom: 4 }}>
             {field.label}

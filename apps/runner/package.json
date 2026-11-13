@@ -15,6 +15,7 @@
     "@forgegent/registry": "workspace:*",
     "@forgegent/shared": "workspace:*",
     "@forgegent/storage": "workspace:*",
+    "@forgegent/studio": "workspace:*",
     "@forgegent/tasks": "workspace:*"
   },
   "devDependencies": {

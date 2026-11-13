@@ -206,6 +206,8 @@ export const agentDrafts = sqliteTable(
     draftPayload: jsonCol("draft_payload").notNull(),
     state: text("state").notNull().default("editing"),
     reviewNote: text("review_note"),
+    /** Submit-time automatic test gate result (N5). */
+    autoTestResult: text("auto_test_result"),
     ...timestamps,
   },
   (t) => [

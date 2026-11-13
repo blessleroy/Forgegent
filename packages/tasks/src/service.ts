@@ -57,6 +57,8 @@ export interface CreateTaskInput {
   origin?: "staff" | "test";
   mode?: "restricted" | "sandboxed";
   budget?: TaskBudget;
+  /** Draft-preview runs bind the unpublished snapshot directly (6.3). */
+  agentReleaseIdOverride?: string;
 }
 
 export interface TaskRecord {
@@ -99,11 +101,15 @@ export async function createTask(
   db: ForgegentDb,
   input: CreateTaskInput,
 ): Promise<TaskRecord> {
-  const usable = await canUseAgent(db, {
-    userId: input.ownerId,
-    roles: input.roles as ("admin" | "builder" | "employee")[],
-    agentId: input.agentId,
-  });
+  const usable =
+    input.origin === "test"
+      ? true // Draft test runs are gated by draft ownership upstream (6.3),
+              // not by publish grants — the draft is not published yet.
+      : await canUseAgent(db, {
+          userId: input.ownerId,
+          roles: input.roles as ("admin" | "builder" | "employee")[],
+          agentId: input.agentId,
+        });
   if (!usable) {
     await audit(db, {
       actorId: input.ownerId,
@@ -115,11 +121,14 @@ export async function createTask(
     });
     throw new TaskError("AGENT_NOT_USABLE", "agent not usable by this user");
   }
-  const releaseId = rawQuery<{ active_release_id: string | null }>(
-    db,
-    "SELECT active_release_id FROM agents WHERE id = ?",
-    input.agentId,
-  )[0]?.active_release_id;
+  let releaseId: string | null = input.agentReleaseIdOverride ?? null;
+  if (!releaseId) {
+    releaseId = rawQuery<{ active_release_id: string | null }>(
+      db,
+      "SELECT active_release_id FROM agents WHERE id = ?",
+      input.agentId,
+    )[0]?.active_release_id ?? null;
+  }
   if (!releaseId) {
     throw new TaskError("AGENT_NOT_USABLE", "agent has no active release");
   }
