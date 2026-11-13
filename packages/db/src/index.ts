@@ -57,6 +57,10 @@ export function rawQuery<T>(
   return (db as unknown as WithClient).$client.prepare(sql).all(...params);
 }
 export * from "./schema.js";
+/** Re-exported drizzle operators from OUR resolved instance — downstream
+ *  packages must import these (not their own drizzle-orm) to avoid pnpm
+ *  peer-split type conflicts. */
+export { and, eq, isNull, or, sql } from "drizzle-orm";
 
 export function createDb(dbPath: string): ForgegentDb {
   const sqlite = new Database(dbPath);

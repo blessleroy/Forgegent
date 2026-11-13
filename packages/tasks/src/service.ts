@@ -121,6 +121,15 @@ export async function createTask(
     });
     throw new TaskError("AGENT_NOT_USABLE", "agent not usable by this user");
   }
+  // Deactivated users cannot start new work (D22) — running tasks complete.
+  const statusRow = rawQuery<{ status: string }>(
+    db,
+    "SELECT status FROM users WHERE id = ?",
+    input.ownerId,
+  )[0];
+  if (statusRow?.status !== "active") {
+    throw new TaskError("AGENT_NOT_USABLE", "user is not active");
+  }
   let releaseId: string | null = input.agentReleaseIdOverride ?? null;
   if (!releaseId) {
     releaseId = rawQuery<{ active_release_id: string | null }>(

@@ -15,6 +15,7 @@
     "@forgegent/registry": "workspace:*",
     "@forgegent/sandbox": "workspace:*",
     "@forgegent/shared": "workspace:*",
+    "@forgegent/skills": "workspace:*",
     "@forgegent/storage": "workspace:*",
     "@forgegent/studio": "workspace:*",
     "@forgegent/tasks": "workspace:*"

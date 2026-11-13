@@ -550,7 +550,35 @@ export async function copyReleaseToDraft(
   };
 }
 
-/** Export bundle: single sanitized JSON document (capability refs only). */
+/**
+ * Export bundle: single sanitized JSON document (capability refs only).
+ * Sensitive-shaped fields and internal identity references are stripped
+ * recursively before serialization (FR-02.4).
+ */
+export function sanitizeForExport(value: unknown, depth = 0): unknown {
+  if (depth > 10) return "[depth-limit]";
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForExport(item, depth + 1));
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (/apiKey|api_key|secret|password|credential|bearer|token/i.test(key)) {
+        continue; // never export secret-shaped keys
+      }
+      out[key] = sanitizeForExport(item, depth + 1);
+    }
+    return out;
+  }
+  if (typeof value === "string") {
+    // Strip credential-shaped values and internal absolute identity paths.
+    return value
+      .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "[redacted]")
+      .replace(/^\/(home|Users)\/[^\s"']+/g, "[internal-path]");
+  }
+  return value;
+}
+
 export function exportReleaseBundle(
   snapshot: { releaseId: string; version: string; payload: DraftPayload },
 ): string {
@@ -559,7 +587,7 @@ export function exportReleaseBundle(
       schemaVersion: "1.0",
       bundle: "forgegent-app",
       sourceRelease: { version: snapshot.version },
-      payload: snapshot.payload,
+      payload: sanitizeForExport(snapshot.payload),
     },
     null,
     2,
