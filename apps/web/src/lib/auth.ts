@@ -82,6 +82,8 @@ type SqliteClient = Parameters<typeof sqliteStorage>[0];
 export function createAuth(db: ForgegentDb, trustedOrigins: string[] = []) {
   const sqlite = (db as unknown as { $client: SqliteClient }).$client;
   return betterAuth({
+    secret: process.env.BETTER_AUTH_SECRET,
+    baseURL: process.env.BETTER_AUTH_URL ?? process.env.FORGEGENT_PUBLIC_URL,
     database: drizzleAdapter(db, {
       provider: "sqlite",
       schema: { user: users, session: sessions, account: accounts, verification: verifications },

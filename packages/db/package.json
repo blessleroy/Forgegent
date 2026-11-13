@@ -13,7 +13,7 @@
     "./src/*": "./src/*"
   },
   "scripts": {
-    "build": "tsc -b && rsync -a src/migrations/ dist/migrations/"
+    "build": "tsc -b && node -e \"require('node:fs').cpSync('src/migrations','dist/migrations',{recursive:true})\""
   },
   "dependencies": {
     "@forgegent/shared": "workspace:*",

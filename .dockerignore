@@ -6,3 +6,4 @@ data
 *.sqlite*
 .git
 .openspec*
+**/*.tsbuildinfo
