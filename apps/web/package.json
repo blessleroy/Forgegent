@@ -11,6 +11,7 @@
     "@forgegent/db": "workspace:*",
     "@forgegent/registry": "workspace:*",
     "@forgegent/shared": "workspace:*",
+    "@forgegent/tasks": "workspace:*",
     "better-auth": "^1.7.20",
     "better-sqlite3": "13.1.1",
     "drizzle-orm": "^0.38.4",

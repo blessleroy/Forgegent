@@ -65,8 +65,9 @@ export function claimNextTask(
          ORDER BY t.created_at, t.id
          LIMIT 1
        )
-       RETURNING id, owner_id, agent_release_id, state, origin, mode,
-                 input_summary, session_id, budget`,
+       RETURNING id, owner_id AS ownerId, agent_release_id AS agentReleaseId,
+                 state, origin, mode,
+                 input_summary AS inputSummary, session_id AS sessionId, budget`,
     )
     .get(leaseOwner, leaseUntil.getTime(), now) as ClaimedTask | undefined;
   return row ?? null;

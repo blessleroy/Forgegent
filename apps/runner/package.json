@@ -12,8 +12,10 @@
   "dependencies": {
     "@forgegent/db": "workspace:*",
     "@forgegent/pi-adapter": "workspace:*",
+    "@forgegent/registry": "workspace:*",
     "@forgegent/shared": "workspace:*",
-    "@forgegent/storage": "workspace:*"
+    "@forgegent/storage": "workspace:*",
+    "@forgegent/tasks": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

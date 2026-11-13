@@ -31,16 +31,18 @@ describe("task state machine", () => {
     expect(canTransition("waiting_input", "running")).toBe(true);
   });
 
-  it("allows continue from all four terminal states", () => {
+  it("allows continue requeue from all four terminal states", () => {
     for (const state of TERMINAL_TASK_STATES) {
-      expect(canTransition(state, "running")).toBe(true);
+      expect(canTransition(state, "pending")).toBe(true);
+      expect(canTransition(state, "running")).toBe(false);
     }
   });
 
   it("rejects illegal transitions", () => {
-    expect(canTransition("completed", "pending")).toBe(false);
+    expect(canTransition("completed", "running")).toBe(false);
     expect(canTransition("pending", "running")).toBe(false);
     expect(canTransition("cancelled", "completed")).toBe(false);
+    expect(canTransition("waiting_input", "starting")).toBe(false);
   });
 
   it("has no state with zero outgoing transitions", () => {

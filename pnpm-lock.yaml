@@ -190,12 +190,18 @@ importers:
       '@forgegent/pi-adapter':
         specifier: workspace:*
         version: link:../../packages/pi-adapter
+      '@forgegent/registry':
+        specifier: workspace:*
+        version: link:../../packages/registry
       '@forgegent/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@forgegent/storage':
         specifier: workspace:*
         version: link:../../packages/storage
+      '@forgegent/tasks':
+        specifier: workspace:*
+        version: link:../../packages/tasks
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -215,6 +221,9 @@ importers:
       '@forgegent/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@forgegent/tasks':
+        specifier: workspace:*
+        version: link:../../packages/tasks
       better-auth:
         specifier: ^1.7.20
         version: 1.7.20(drizzle-orm@0.38.4(@types/better-sqlite3@7.6.13)(@types/react@19.3.0)(better-sqlite3@13.1.1)(kysely@0.29.8)(react@19.3.1))(next@15.5.29(@types/node@22.20.5)(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(vitest@2.1.9(@types/node@22.20.5)(supports-color@7.2.0))
@@ -312,6 +321,28 @@ importers:
       drizzle-orm:
         specifier: ^0.38.0
         version: 0.38.4(@types/better-sqlite3@7.6.13)(@types/react@19.3.0)(better-sqlite3@13.1.1)(react@19.3.1)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/tasks:
+    dependencies:
+      '@forgegent/db':
+        specifier: workspace:*
+        version: link:../db
+      '@forgegent/registry':
+        specifier: workspace:*
+        version: link:../registry
+      '@forgegent/shared':
+        specifier: workspace:*
+        version: link:../shared
+      drizzle-orm:
+        specifier: 0.38.4
+        version: 0.38.4(@types/better-sqlite3@7.6.13)(@types/react@19.3.0)(better-sqlite3@13.1.1)(kysely@0.29.8)(react@19.3.1)
     devDependencies:
       '@types/node':
         specifier: ^22.10.0

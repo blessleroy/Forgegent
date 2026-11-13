@@ -29,6 +29,16 @@ export {
 /** Model runtime instance type (constructor is private; use create()). */
 export type PlatformModelRuntime = Awaited<ReturnType<typeof ModelRuntime.create>>;
 
+export {
+  createPosterTool,
+  validateImagePayload,
+} from "./tools/poster.js";
+export type {
+  PosterTool,
+  ImageToolConfig,
+  ImageResult,
+} from "./tools/poster.js";
+
 export interface PlatformTool {
   /** Tool name exposed to the model (e.g. "poster.generate"). */
   name: string;

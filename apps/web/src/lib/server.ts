@@ -3,9 +3,8 @@
  * bootstrap (tasks 1.4/1.6). Lazily initialised per process.
  */
 import { join } from "node:path";
-import { createDb } from "@forgegent/db";
-import { ensureInitialAdmin } from "@forgegent/db";
-import { ReleaseStore } from "@forgegent/registry";
+import { createDb, ensureInitialAdmin } from "@forgegent/db";
+import { ReleaseStore, seedDemo } from "@forgegent/registry";
 import { createAuth, type Auth } from "./auth";
 
 export function dataDir(): string {
@@ -41,24 +40,45 @@ export function getAuth(): Auth {
   return authPromise;
 }
 
-/** Create the first admin from env vars on an empty users table (D14). */
+/** Create the first admin from env vars on an empty users table (D14),
+ *  then optionally seed the demo workspace (D25, FORGEGENT_SEED_DEMO=1). */
 export async function ensureBootstrap(): Promise<void> {
   if (bootstrapped) return;
   bootstrapped = true;
   const auth = getAuth();
   const db = getDb();
+  const createUser = async (email: string, password: string, name: string) => {
+    const result = await auth.api.signUpEmail({
+      body: { email, password, name },
+      asResponse: false,
+    });
+    return { id: result.user.id };
+  };
   await ensureInitialAdmin(
     db,
     {
       adminEmail: process.env.FORGEGENT_ADMIN_EMAIL,
       adminPassword: process.env.FORGEGENT_ADMIN_PASSWORD,
     },
-    async (email, password) => {
-      const result = await auth.api.signUpEmail({
-        body: { email, password, name: "Admin" },
-        asResponse: false,
-      });
-      return { id: result.user.id };
-    },
+    createUser,
   );
+  if (process.env.FORGEGENT_SEED_DEMO === "1") {
+    await seedDemo(db, getReleaseStore(), {
+      accounts: {
+        adminEmail: process.env.FORGEGENT_ADMIN_EMAIL ?? "admin@forgegent.local",
+        adminPassword: process.env.FORGEGENT_ADMIN_PASSWORD ?? "init-pass-123",
+        builderEmail: "builder@forgegent.local",
+        builderPassword: "demo-builder-123",
+        employeeEmail: "employee@forgegent.local",
+        employeePassword: "demo-employee-123",
+      },
+      modelEndpoint: process.env.FORGEGENT_MODEL_BASE_URL
+        ? {
+            baseUrl: process.env.FORGEGENT_MODEL_BASE_URL,
+            model: process.env.FORGEGENT_MODEL_NAME ?? "gpt-image-1",
+            apiKeyEnv: "FORGEGENT_MODEL_API_KEY",
+          }
+        : undefined,
+    }, createUser);
+  }
 }

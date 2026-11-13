@@ -64,10 +64,11 @@ export const TASK_TRANSITIONS: Readonly<Record<TaskState, readonly TaskState[]>>
   starting: ["running", "cancelled", "interrupted"],
   running: ["waiting_input", "completed", "failed", "cancelled", "interrupted"],
   waiting_input: ["running", "failed", "cancelled", "interrupted"],
-  completed: ["running"],
-  failed: ["running"],
-  cancelled: ["running"],
-  interrupted: ["running"],
+  // Terminal states: continue requeues the same task+session as pending.
+  completed: ["pending"],
+  failed: ["pending"],
+  cancelled: ["pending"],
+  interrupted: ["pending"],
 };
 
 export function canTransition(from: TaskState, to: TaskState): boolean {
