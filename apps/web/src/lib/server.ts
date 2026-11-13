@@ -47,9 +47,9 @@ export async function ensureBootstrap(): Promise<void> {
   bootstrapped = true;
   const auth = getAuth();
   const db = getDb();
-  const createUser = async (email: string, password: string, name: string) => {
+  const createUser = async (email: string, password: string, name?: string) => {
     const result = await auth.api.signUpEmail({
-      body: { email, password, name },
+      body: { email, password, name: name ?? "User" },
       asResponse: false,
     });
     return { id: result.user.id };
