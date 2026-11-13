@@ -272,6 +272,28 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
+  packages/gateway:
+    dependencies:
+      '@forgegent/db':
+        specifier: workspace:*
+        version: link:../db
+      '@forgegent/registry':
+        specifier: workspace:*
+        version: link:../registry
+      '@forgegent/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@forgegent/tasks':
+        specifier: workspace:*
+        version: link:../tasks
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
   packages/pi-adapter:
     dependencies:
       '@earendil-works/pi-coding-agent':

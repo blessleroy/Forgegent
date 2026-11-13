@@ -79,7 +79,11 @@ function sqliteStorage(sqlite: {
 
 type SqliteClient = Parameters<typeof sqliteStorage>[0];
 
-export function createAuth(db: ForgegentDb, trustedOrigins: string[] = []) {
+export function createAuth(
+  db: ForgegentDb,
+  trustedOrigins: string[] = [],
+  options?: { rateLimitMax?: number },
+) {
   const sqlite = (db as unknown as { $client: SqliteClient }).$client;
   return betterAuth({
     secret: process.env.BETTER_AUTH_SECRET,
@@ -112,7 +116,7 @@ export function createAuth(db: ForgegentDb, trustedOrigins: string[] = []) {
     rateLimit: {
       enabled: true,
       window: 60,
-      max: 10,
+      max: options?.rateLimitMax ?? 10,
       storage: "secondary-storage",
     },
     secondaryStorage: sqliteStorage(sqlite),

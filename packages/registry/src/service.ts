@@ -15,6 +15,7 @@ import {
   agentReleases,
   agents,
   departments,
+  toolPolicies,
   userDepartments,
 } from "@forgegent/db";
 import type { Role } from "@forgegent/shared";
@@ -333,6 +334,17 @@ export async function reviewDraft(
     checksum: snapshot.checksum,
     publishedBy: params.adminId,
   });
+  // Tool whitelist lands in tool_policies — the runtime source the Tool
+  // Gateway checks against (permission-enforcement spec, task 5.2).
+  for (const toolId of payload.toolRefs ?? []) {
+    await db.insert(toolPolicies).values({
+      id: randomUUID(),
+      releaseId,
+      toolId,
+      resourceScope: null,
+      allowedActions: "invoke",
+    });
+  }
   await db
     .update(agentDrafts)
     .set({ state: "approved" })
