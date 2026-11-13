@@ -46,6 +46,16 @@ export function rawExec(
   type WithClient = { $client: { prepare(s: string): { run(...p: unknown[]): unknown } } };
   (db as unknown as WithClient).$client.prepare(sql).run(...params);
 }
+
+/** Raw parameterized SELECT helper returning typed rows. */
+export function rawQuery<T>(
+  db: ForgegentDb,
+  sql: string,
+  ...params: unknown[]
+): T[] {
+  type WithClient = { $client: { prepare(s: string): { all(...p: unknown[]): T[] } } };
+  return (db as unknown as WithClient).$client.prepare(sql).all(...params);
+}
 export * from "./schema.js";
 
 export function createDb(dbPath: string): ForgegentDb {

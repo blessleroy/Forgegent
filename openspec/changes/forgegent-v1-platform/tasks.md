@@ -21,10 +21,10 @@
 
 ## 3. M1 Agent Registry 与发布治理
 
-- [ ] 3.1 实现 agents/agent_drafts/agent_releases 数据层与 API（slug 即时校验、agents 行随首草稿创建，D20）；验证 slug 冲突与草稿状态机（editing→in_review→rejected/approved、同 Agent 单一 in_review）单测
-- [ ] 3.2 实现不可变发布快照（只读目录 + checksum，Task 绑定 release）；验证"发布 v2 时运行中 v1 任务继续旧快照"（AT-11）
-- [ ] 3.3 实现审核/发布/下架/回滚 API 与 `/admin/agents` 页面（含导入/导出入口，N7）；验证 AT-03（未审核对员工不可见）与下架默认安全完成
-- [ ] 3.4 实现发布范围授权（全体/成员/部门，默认未授权仅 Admin 可见，N1）；验证授权过滤测试
+- [x] 3.1 实现 agents/agent_drafts/agent_releases 数据层与 API（slug 即时校验、agents 行随首草稿创建，D20）；验证 slug 冲突与草稿状态机（editing→in_review→rejected/approved、同 Agent 单一 in_review）单测
+- [x] 3.2 实现不可变发布快照（只读目录 + checksum，Task 绑定 release）；验证"发布 v2 时运行中 v1 任务继续旧快照"（AT-11）
+- [x] 3.3 实现审核/发布/下架/回滚 API 与 `/admin/agents` 页面（含导入/导出入口，N7）；验证 AT-03（未审核对员工不可见）与下架默认安全完成
+- [x] 3.4 实现发布范围授权（全体/成员/部门，默认未授权仅 Admin 可见，N1）；验证授权过滤测试
 
 ## 4. M1 任务闭环与员工 Hub
 

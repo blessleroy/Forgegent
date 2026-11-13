@@ -61,10 +61,33 @@ export default function AdminAgentsPage() {
     await load();
   }
 
+  async function exportLatest(agentId: string) {
+    const data = await (await fetch("/api/admin/agents/data")).json();
+    const agent = (data.agents as AgentRow[]).find((a) => a.id === agentId);
+    const latest = agent?.versions.at(-1);
+    if (!latest) return;
+    window.open(`/api/admin/releases/${latest.releaseId}/export`, "_blank");
+  }
+
+  async function importBundle() {
+    const bundleJson = window.prompt("粘贴导出的 bundle JSON:");
+    if (!bundleJson) return;
+    const slug = window.prompt("新应用 slug（kebab-case）:");
+    if (!slug) return;
+    const res = await fetch("/api/admin/releases/import", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ bundleJson, slug }),
+    });
+    setMessage(res.ok ? "已导入为草稿（需重新授权与审核）" : `失败: ${await res.text()}`);
+    await load();
+  }
+
   return (
     <main style={{ maxWidth: 900, margin: "2rem auto", fontFamily: "system-ui" }}>
       <h1>Agent 管理</h1>
       {message ? <p style={{ color: "#0369a1" }}>{message}</p> : null}
+      <button onClick={importBundle}>导入应用包</button>
 
       <h2>待审核草稿</h2>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -148,6 +171,7 @@ export default function AdminAgentsPage() {
                 >
                   授权全体
                 </button>
+                <button onClick={() => exportLatest(a.id)}>导出</button>
               </td>
             </tr>
           ))}
