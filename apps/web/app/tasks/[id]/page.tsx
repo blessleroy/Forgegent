@@ -106,7 +106,7 @@ export default function TaskDetailPage() {
           events.map((event) => (
             <div key={event.seq} style={{ padding: "6px 12px", borderBottom: "1px solid #f4f4f4", fontSize: 14 }}>
               <code style={{ color: "#0369a1" }}>{event.eventType}</code>{" "}
-              {event.safePayload?.message ?? event.safePayload?.note ?? ""}
+              {String(event.safePayload?.message ?? event.safePayload?.note ?? "")}
             </div>
           ))
         )}
