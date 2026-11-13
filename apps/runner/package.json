@@ -10,7 +10,10 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@forgegent/shared": "workspace:*"
+    "@forgegent/db": "workspace:*",
+    "@forgegent/pi-adapter": "workspace:*",
+    "@forgegent/shared": "workspace:*",
+    "@forgegent/storage": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

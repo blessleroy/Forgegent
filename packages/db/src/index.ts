@@ -24,6 +24,18 @@ export {
   isUserActive,
 } from "./bootstrap.js";
 export type { InitialAdminEnv, InitialAdminResult } from "./bootstrap.js";
+export {
+  claimNextTask,
+  renewLease,
+  finishLeasedTask,
+  reclaimStaleLeases,
+  newLeaseOwnerId,
+} from "./queue.js";
+export type { ClaimedTask } from "./queue.js";
+export {
+  appendTaskEvent,
+  readTaskEvents,
+} from "./events.js";
 
 /** Raw parameterized SQL escape hatch (avoid cross-package drizzle typing). */
 export function rawExec(

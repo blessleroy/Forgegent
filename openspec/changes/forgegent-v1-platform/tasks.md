@@ -13,11 +13,11 @@
 
 ## 2. M0 骨架：Runner 最小会话
 
-- [ ] 2.1 实现 Runner 进程骨架：SQLite 任务表轮询、`lease_until` 租约、并发上限 5（可配）、同 session 独占锁；验证双份重复领取与并发上限单测
-- [ ] 2.2 在 pi-adapter 实现 restricted 会话工厂：`tools` 白名单 + `customTools` 注入点 + `SessionManager` 指向任务 workspace；验证白名单外工具不可用的单测
-- [ ] 2.3 以 `ModelRuntime` 接入 OpenAI 兼容自部署端点（自定义 base URL，D11）；验证配置探活校验与错误信息
+- [x] 2.1 实现 Runner 进程骨架：SQLite 任务表轮询、`lease_until` 租约、并发上限 5（可配）、同 session 独占锁；验证双份重复领取与并发上限单测
+- [x] 2.2 在 pi-adapter 实现 restricted 会话工厂：`tools` 白名单 + `customTools` 注入点 + `SessionManager` 指向任务 workspace；验证白名单外工具不可用的单测
+- [x] 2.3 以 `ModelRuntime` 接入 OpenAI 兼容自部署端点（自定义 base URL，D11）；验证配置探活校验与错误信息
 - [ ] 2.4 Docker Compose 骨架（web + runner + 数据卷）与 Dockerfile；验证 `docker compose up` 后健康检查通过
-- [ ] 2.5 M0 验收场景：两个用户登录且文件相互隔离、一个手工定义的受限工具 Agent 安全运行；验证 E2E 脚本通过
+- [x] 2.5 M0 验收场景：两个用户登录且文件相互隔离、一个手工定义的受限工具 Agent 安全运行；验证 E2E 脚本通过
 
 ## 3. M1 Agent Registry 与发布治理
 
