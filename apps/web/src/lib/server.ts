@@ -5,6 +5,7 @@
 import { join } from "node:path";
 import { createDb } from "@forgegent/db";
 import { ensureInitialAdmin } from "@forgegent/db";
+import { ReleaseStore } from "@forgegent/registry";
 import { createAuth, type Auth } from "./auth";
 
 export function dataDir(): string {
@@ -13,6 +14,7 @@ export function dataDir(): string {
 
 let dbPromise: ReturnType<typeof createDb> | null = null;
 let authPromise: Auth | null = null;
+let releaseStore: ReleaseStore | null = null;
 let bootstrapped = false;
 
 export function getDb() {
@@ -20,6 +22,14 @@ export function getDb() {
     dbPromise = createDb(join(dataDir(), "forgegent.sqlite"));
   }
   return dbPromise;
+}
+
+export function getReleaseStore(): ReleaseStore {
+  if (!releaseStore) {
+    releaseStore = new ReleaseStore(join(dataDir(), "releases"));
+    releaseStore.init();
+  }
+  return releaseStore;
 }
 
 export function getAuth(): Auth {

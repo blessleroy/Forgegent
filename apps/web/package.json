@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@forgegent/db": "workspace:*",
+    "@forgegent/registry": "workspace:*",
     "@forgegent/shared": "workspace:*",
     "better-auth": "^1.7.20",
     "better-sqlite3": "13.1.1",
