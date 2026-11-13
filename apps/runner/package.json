@@ -13,6 +13,7 @@
     "@forgegent/db": "workspace:*",
     "@forgegent/pi-adapter": "workspace:*",
     "@forgegent/registry": "workspace:*",
+    "@forgegent/sandbox": "workspace:*",
     "@forgegent/shared": "workspace:*",
     "@forgegent/storage": "workspace:*",
     "@forgegent/studio": "workspace:*",
