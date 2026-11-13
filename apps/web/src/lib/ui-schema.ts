@@ -39,7 +39,11 @@ export function parseUiSchema(
   raw: unknown,
 ): { ok: true; schema: UiSchema } | { ok: false; errors: string[] } {
   const errors: string[] = [];
-  const s = raw as Partial<FormResultSchema & DocumentFlowSchema>;
+  const s = raw as {
+    template?: string;
+    fields?: { name?: string; label?: string; type?: string; options?: string[] }[];
+    uploadField?: { name?: string };
+  };
   if (!s || typeof s !== "object") return { ok: false, errors: ["schema must be an object"] };
   if (s.template === "form-result") {
     if (!Array.isArray(s.fields) || s.fields.length === 0) {
