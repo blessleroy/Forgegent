@@ -7,13 +7,7 @@
  * - one in-flight task per session is guaranteed by the queue primitive;
  * - handler result maps to the terminal state; throw -> failed.
  */
-import {
-  claimNextTask,
-  finishLeasedTask,
-  newLeaseOwnerId,
-  reclaimStaleLeases,
-  type ClaimedTask,
-} from "@forgegent/db";
+import { newLeaseOwnerId, type ClaimedTask } from "@forgegent/db";
 
 export interface SchedulerConfig {
   pollIntervalMs: number;
@@ -32,11 +26,15 @@ export type HandlerOutcome = "completed" | "failed" | "waiting_input";
 
 export type TaskHandler = (task: ClaimedTask) => Promise<HandlerOutcome>;
 
+/** Queue operations with the database already bound (closure-injected). */
 export interface SchedulerDeps {
-  /** Queue storage operations, injected for testability. */
-  claim: typeof claimNextTask;
-  finish: typeof finishLeasedTask;
-  reclaim: typeof reclaimStaleLeases;
+  claim(owner: string, leaseSeconds: number): ClaimedTask | null;
+  finish(
+    taskId: string,
+    owner: string,
+    state: "completed" | "failed" | "cancelled" | "interrupted" | "running" | "waiting_input",
+  ): boolean;
+  reclaim(): string[];
 }
 
 export class Scheduler {
