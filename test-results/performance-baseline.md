@@ -1,9 +1,9 @@
 # Performance baseline (task 9.6)
 
-- date: 2026-11-13T06:50:18.649Z
+- date: 2026-11-13T14:12:10.956Z
 - concurrent tasks: 5 (cap default)
-- wall time for one full wave: 31.1ms
-- handler P50: 30.6ms / P95: 30.6ms
+- wall time for one full wave: 30.1ms
+- handler P50: 29.6ms / P95: 29.7ms
 - isolation: all tasks completed with independent durations
 
 Measured with a mocked agent loop (30ms simulated work); web API

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import AppShell from "@/components/app-shell";
 import { useLocale } from "@/lib/use-locale";
 
 interface DraftRow {
@@ -9,7 +10,6 @@ interface DraftRow {
   name: string;
   version: string;
   state: string;
-  autoTestResult: string | null;
 }
 
 interface ChatMessage {
@@ -20,7 +20,7 @@ interface ChatMessage {
 }
 
 export default function StudioPage() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
   const [activeDraft, setActiveDraft] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -63,13 +63,12 @@ export default function StudioPage() {
     });
     setBusy(false);
     if (!res.ok) {
-      setError(String(await res.text()));
+      const body = await res.json().catch(() => ({}));
+      setError(body.detail ?? body.error ?? "请求失败");
       return;
     }
     const data = await res.json();
-    if (!activeDraft) {
-      setActiveDraft(data.draftId);
-    }
+    if (!activeDraft) setActiveDraft(data.draftId);
     setMessages((prev) => [...prev, data.message as ChatMessage]);
     setInput("");
     await loadDrafts();
@@ -106,108 +105,109 @@ export default function StudioPage() {
   }
 
   return (
-    <main style={{ maxWidth: 1000, margin: "2rem auto", fontFamily: "system-ui", display: "grid", gridTemplateColumns: "280px 1fr", gap: 24 }}>
-      <aside>
-        <h2>{t("nav.studio")}</h2>
-        {drafts.map((draft) => (
-          <div
-            key={draft.id}
-            onClick={() => {
-              setActiveDraft(draft.id);
-              void loadConversation(draft.id);
-            }}
-            style={{
-              padding: 8,
-              marginBottom: 6,
-              border: "1px solid #ddd",
-              borderRadius: 6,
-              cursor: "pointer",
-              background: activeDraft === draft.id ? "#eef6ff" : "white",
-            }}
-          >
-            <strong>{draft.name}</strong>
-            <div style={{ fontSize: 12, color: "#888" }}>
-              {draft.slug} · {draft.version} · {draft.state}
+    <AppShell>
+      <h1 className="page-title">{t("nav.studio")}</h1>
+      <p className="page-sub">
+        {locale === "zh"
+          ? "用对话描述你要构建的应用；生成草稿后可继续修改、预览测试并送审。"
+          : "Describe the app you want; iterate, preview-test and submit for review."}
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 20 }}>
+        <aside>
+          <div className="h2" style={{ marginTop: 0 }}>
+            {locale === "zh" ? "我的草稿" : "Drafts"}
+          </div>
+          {drafts.map((draft) => (
+            <div
+              key={draft.id}
+              onClick={() => {
+                setActiveDraft(draft.id);
+                void loadConversation(draft.id);
+              }}
+              className="card"
+              style={{
+                padding: "10px 12px",
+                marginBottom: 8,
+                cursor: "pointer",
+                borderColor: activeDraft === draft.id ? "var(--molten)" : "var(--line)",
+              }}
+            >
+              <strong style={{ fontSize: 14 }}>{draft.name}</strong>
+              <div style={{ fontSize: 12, color: "var(--ink-soft)", fontFamily: "var(--mono)" }}>
+                {draft.slug} · {draft.version} ·{" "}
+                <span className={`badge s-${draft.state === "in_review" ? "running" : "pending"}`} style={{ fontSize: 11 }}>
+                  {draft.state}
+                </span>
+              </div>
             </div>
-          </div>
-        ))}
-      </aside>
-      <section>
-        {!activeDraft ? (
-          <div style={{ marginBottom: 8 }}>
-            <label>应用 slug（kebab-case）：</label>
-            <input
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-              placeholder="my-poster-agent"
-              style={{ padding: 8, width: 240 }}
-            />
-          </div>
-        ) : null}
-        <div
-          style={{
-            border: "1px solid #eee",
-            borderRadius: 8,
-            height: 360,
-            overflowY: "auto",
-            padding: 12,
-            marginBottom: 8,
-          }}
-        >
-          {messages.length === 0 ? (
-            <p style={{ color: "#888" }}>描述你想构建的 Agent 应用…</p>
-          ) : (
-            messages.map((m, i) => (
-              <div
-                key={i}
-                style={{
-                  marginBottom: 10,
-                  textAlign: m.role === "builder" ? "right" : "left",
-                }}
-              >
-                <div
-                  style={{
-                    display: "inline-block",
-                    padding: "6px 10px",
-                    borderRadius: 8,
-                    background: m.role === "builder" ? "#0369a1" : "#f1f5f9",
-                    color: m.role === "builder" ? "white" : "black",
-                    maxWidth: "80%",
-                    whiteSpace: "pre-wrap",
-                    fontSize: 14,
-                  }}
-                >
-                  {m.text}
+          ))}
+          {drafts.length === 0 ? (
+            <p style={{ color: "var(--ink-faint)", fontSize: 13 }}>
+              {locale === "zh" ? "还没有草稿——从右侧对话开始。" : "No drafts yet — start on the right."}
+            </p>
+          ) : null}
+        </aside>
+        <section>
+          {!activeDraft ? (
+            <div className="field" style={{ maxWidth: 360 }}>
+              <label>
+                {locale === "zh" ? "新应用标识（slug）" : "New app slug"}
+              </label>
+              <input
+                className="input"
+                value={slug}
+                onChange={(e) => setSlug(e.target.value)}
+                placeholder="my-poster-agent"
+                style={{ fontFamily: "var(--mono)" }}
+              />
+              <div className="hint">
+                {locale === "zh" ? "小写字母、数字与连字符，创建后不可改。" : "lowercase kebab-case, immutable."}
+              </div>
+            </div>
+          ) : null}
+          <div className="chat-box">
+            {messages.length === 0 ? (
+              <p style={{ color: "var(--ink-faint)", textAlign: "center", marginTop: 140 }}>
+                {locale === "zh"
+                  ? "例如：创建一个活动海报 Agent，员工输入主题和风格，自动出图。"
+                  : 'e.g. "Create a poster agent: staff enter theme & style."'}
+              </p>
+            ) : (
+              messages.map((m, i) => (
+                <div key={i} className={`chat-msg from-${m.role}`}>
+                  <div className="bubble">{m.text}</div>
                   {m.clarifications?.length ? (
-                    <div style={{ marginTop: 4, fontSize: 13, color: "#b45309" }}>
-                      ❓ {m.clarifications.join(" / ")}
-                    </div>
+                    <div className="clarify">❓ {m.clarifications.join(" / ")}</div>
                   ) : null}
                 </div>
-              </div>
-            ))
-          )}
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            style={{ flex: 1, padding: 8 }}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={activeDraft ? "描述修改要求…" : "描述要构建的应用…"}
-            onKeyDown={(e) => e.key === "Enter" && send()}
-          />
-          <button onClick={send} disabled={busy}>
-            {busy ? "…" : "发送"}
-          </button>
-        </div>
-        {activeDraft ? (
-          <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-            <button onClick={runTest}>预览测试</button>
-            <button onClick={submitForReview}>提交审核</button>
+              ))
+            )}
           </div>
-        ) : null}
-        {error ? <p style={{ color: "#0369a1", fontSize: 13 }}>{error}</p> : null}
-      </section>
-    </main>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <input
+              className="input"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={activeDraft ? (locale === "zh" ? "描述修改要求…" : "Describe the change…") : t("app.input")}
+              onKeyDown={(e) => e.key === "Enter" && send()}
+            />
+            <button className="btn btn-primary" onClick={send} disabled={busy || (!activeDraft && !slug)}>
+              {busy ? "…" : locale === "zh" ? "发送" : "Send"}
+            </button>
+          </div>
+          {activeDraft ? (
+            <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+              <button className="btn" onClick={runTest}>
+                {locale === "zh" ? "预览测试" : "Preview run"}
+              </button>
+              <button className="btn btn-primary" onClick={submitForReview}>
+                {locale === "zh" ? "提交审核" : "Submit for review"}
+              </button>
+            </div>
+          ) : null}
+          {error ? <p style={{ color: "var(--steel)", fontSize: 13, marginTop: 10 }}>{error}</p> : null}
+        </section>
+      </div>
+    </AppShell>
   );
 }

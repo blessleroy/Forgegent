@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import AppShell from "@/components/app-shell";
 import { parseUiSchema, validateFormInput, type FormResultSchema } from "@/lib/ui-schema";
 import { useLocale } from "@/lib/use-locale";
 
@@ -14,7 +15,7 @@ interface AgentDetail {
 
 export default function AppTaskPage() {
   const params = useParams<{ slug: string }>();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [agent, setAgent] = useState<AgentDetail | null>(null);
   const [schema, setSchema] = useState<FormResultSchema | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
@@ -35,9 +36,9 @@ export default function AppTaskPage() {
             .then((payload) => {
               const parsed = parseUiSchema(payload.schema);
               if (parsed.ok && parsed.schema.template === "form-result") {
-                setSchema(parsed.schema);
+                setSchema(parsed.schema as FormResultSchema);
                 const defaults: Record<string, string> = {};
-                for (const f of parsed.schema.fields) {
+                for (const f of (parsed.schema as FormResultSchema).fields) {
                   if (f.defaultValue !== undefined) defaults[f.name] = String(f.defaultValue);
                 }
                 setValues(defaults);
@@ -53,7 +54,7 @@ export default function AppTaskPage() {
     if (schema) {
       const check = validateFormInput(schema, values);
       if (!check.ok) {
-        setError(check.errors.map((e) => e.message).join("; "));
+        setError(check.errors.map((e) => e.message).join("；"));
         return;
       }
       inputSummary = schema.fields
@@ -61,7 +62,7 @@ export default function AppTaskPage() {
         .join("\n");
     } else {
       if (!values.requirements?.trim()) {
-        setError("请描述你的需求 / requirements required");
+        setError(locale === "zh" ? "请描述你的需求" : "Describe your requirements");
         return;
       }
       inputSummary = `需求: ${values.requirements}`;
@@ -78,90 +79,93 @@ export default function AppTaskPage() {
       const data = await res.json();
       window.location.href = `/tasks/${data.task.id}`;
     } else {
-      setError(String(await res.text()));
+      setError(locale === "zh" ? "提交失败，请稍后重试" : "Submit failed, try again");
     }
   }
 
   if (!agent) {
     return (
-      <main style={{ padding: "2rem", fontFamily: "system-ui" }}>{t("common.loading")}</main>
+      <AppShell>
+        <p style={{ color: "var(--ink-faint)" }}>{t("common.loading")}</p>
+      </AppShell>
     );
   }
-  if (!schema) {
-    // document-flow drafts render their stage blocks (D24: upload → outline
-    // → progress → download); the message-style interaction drives execution.
-    return (
-      <main style={{ maxWidth: 700, margin: "2rem auto", fontFamily: "system-ui" }}>
-        <h1>{agent.name}</h1>
-        <p style={{ color: "#666" }}>{agent.description}</p>
-        <ol style={{ lineHeight: 2 }}>
-          <li>📄 上传客户需求 / 资料文件</li>
-          <li>🗂️ 确认生成大纲</li>
-          <li>⏳ 等待文档生成</li>
-          <li>⬇️ 下载成果文档</li>
-        </ol>
-        <h2>{t("app.input")}</h2>
-        <textarea
-          rows={4}
-          placeholder="粘贴或描述你的需求…"
-          value={values.requirements ?? ""}
-          onChange={(e) => setValues({ ...values, requirements: e.target.value })}
-          style={{ padding: 8, width: "100%" }}
-        />
-        {error ? <p style={{ color: "#c02929" }}>{error}</p> : null}
-        <button onClick={submit} disabled={submitting} style={{ padding: "10px 20px" }}>
-          {submitting ? "…" : t("app.submit")}
-        </button>
-      </main>
-    );
-  }
+
   return (
-    <main style={{ maxWidth: 700, margin: "2rem auto", fontFamily: "system-ui" }}>
-      <h1>{agent.name}</h1>
-      <p style={{ color: "#666" }}>{agent.description}</p>
-      <h2>{t("app.input")}</h2>
-      {schema.fields.map((field) => (
-        <div key={field.name} style={{ marginBottom: 12 }}>
-          <label style={{ display: "block", marginBottom: 4 }}>
-            {field.label}
-            {field.required ? " *" : ""}
-          </label>
-          {field.type === "select" ? (
-            <select
-              value={values[field.name] ?? ""}
-              onChange={(e) => setValues({ ...values, [field.name]: e.target.value })}
-              style={{ padding: 8, width: "100%" }}
-            >
-              <option value="">—</option>
-              {field.options?.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
-          ) : field.type === "textarea" ? (
+    <AppShell>
+      <h1 className="page-title">{agent.name}</h1>
+      <p className="page-sub">{agent.description}</p>
+
+      {!schema ? (
+        <div className="card" style={{ maxWidth: 640 }}>
+          <div style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 14, lineHeight: 1.9 }}>
+            {locale === "zh" ? "四步交付：" : "Four steps:"}
+            {locale === "zh"
+              ? " ① 上传需求 → ② 确认大纲 → ③ 生成 → ④ 下载文档"
+              : " ① Requirements → ② Outline → ③ Generate → ④ Download"}
+          </div>
+          <div className="field">
+            <label>
+              {locale === "zh" ? "需求描述" : "Requirements"}
+              <span className="req">*</span>
+            </label>
             <textarea
-              rows={3}
-              placeholder={field.placeholder}
-              value={values[field.name] ?? ""}
-              onChange={(e) => setValues({ ...values, [field.name]: e.target.value })}
-              style={{ padding: 8, width: "100%" }}
+              className="input"
+              rows={5}
+              placeholder={locale === "zh" ? "粘贴或描述你的需求…" : "Paste or describe…"}
+              value={values.requirements ?? ""}
+              onChange={(e) => setValues({ ...values, requirements: e.target.value })}
             />
-          ) : (
-            <input
-              type={field.type === "number" ? "number" : "text"}
-              placeholder={field.placeholder}
-              value={values[field.name] ?? ""}
-              onChange={(e) => setValues({ ...values, [field.name]: e.target.value })}
-              style={{ padding: 8, width: "100%" }}
-            />
-          )}
+          </div>
         </div>
-      ))}
-      {error ? <p style={{ color: "#c02929" }}>{error}</p> : null}
-      <button onClick={submit} disabled={submitting} style={{ padding: "10px 20px" }}>
+      ) : (
+        <div className="card" style={{ maxWidth: 640 }}>
+          {schema.fields.map((field) => (
+            <div key={field.name} className="field">
+              <label>
+                {field.label}
+                {field.required ? <span className="req">*</span> : null}
+              </label>
+              {field.type === "select" ? (
+                <select
+                  className="input"
+                  value={values[field.name] ?? ""}
+                  onChange={(e) => setValues({ ...values, [field.name]: e.target.value })}
+                >
+                  <option value="">—</option>
+                  {field.options?.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              ) : field.type === "textarea" ? (
+                <textarea
+                  className="input"
+                  rows={3}
+                  placeholder={field.placeholder}
+                  value={values[field.name] ?? ""}
+                  onChange={(e) => setValues({ ...values, [field.name]: e.target.value })}
+                />
+              ) : (
+                <input
+                  className="input"
+                  type={field.type === "number" ? "number" : "text"}
+                  placeholder={field.placeholder}
+                  value={values[field.name] ?? ""}
+                  onChange={(e) => setValues({ ...values, [field.name]: e.target.value })}
+                />
+              )}
+              <div className="hint">{field.placeholder ?? ""}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {error ? <p className="form-error">{error}</p> : null}
+      <button className="btn btn-primary" onClick={submit} disabled={submitting} style={{ marginTop: 8 }}>
         {submitting ? "…" : t("app.submit")}
       </button>
-    </main>
+    </AppShell>
   );
 }

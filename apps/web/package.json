@@ -11,6 +11,7 @@
     "@forgegent/db": "workspace:*",
     "@forgegent/registry": "workspace:*",
     "@forgegent/shared": "workspace:*",
+    "@forgegent/storage": "workspace:*",
     "@forgegent/studio": "workspace:*",
     "@forgegent/tasks": "workspace:*",
     "better-auth": "^1.7.20",

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import AppShell from "@/components/app-shell";
+import { useLocale } from "@/lib/use-locale";
 
 interface DraftRow {
   draftId: string;
@@ -10,6 +12,7 @@ interface DraftRow {
   builderEmail: string;
   version: string;
   reviewNote: string | null;
+  autoTestResult: string | null;
 }
 
 interface AgentRow {
@@ -22,6 +25,7 @@ interface AgentRow {
 }
 
 export default function AdminAgentsPage() {
+  const { locale } = useLocale();
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
   const [agents, setAgents] = useState<AgentRow[]>([]);
   const [message, setMessage] = useState<string | null>(null);
@@ -29,9 +33,9 @@ export default function AdminAgentsPage() {
   const load = useCallback(async () => {
     const res = await fetch("/api/admin/agents/data");
     if (res.ok) {
-      const data = (await res.json()) as { drafts: DraftRow[]; agents: AgentRow[] };
-      setDrafts(data.drafts);
-      setAgents(data.agents);
+      const data = await res.json();
+      setDrafts(data.drafts ?? []);
+      setAgents(data.agents ?? []);
     }
   }, []);
 
@@ -41,13 +45,21 @@ export default function AdminAgentsPage() {
 
   async function review(draftId: string, decision: "approve" | "reject") {
     const note =
-      decision === "reject" ? window.prompt("拒绝理由 / rejection note:") ?? "" : undefined;
+      decision === "reject"
+        ? window.prompt(locale === "zh" ? "拒绝理由：" : "Rejection note:") ?? ""
+        : undefined;
     const res = await fetch(`/api/admin/drafts/${draftId}/review`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ decision, note }),
     });
-    setMessage(res.ok ? `已${decision === "approve" ? "发布" : "拒绝"}` : `失败: ${await res.text()}`);
+    setMessage(
+      res.ok
+        ? decision === "approve"
+          ? locale === "zh" ? "已发布" : "Published"
+          : locale === "zh" ? "已拒绝并退回" : "Rejected"
+        : `失败: ${await res.text()}`,
+    );
     await load();
   }
 
@@ -57,7 +69,7 @@ export default function AdminAgentsPage() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ action, agentId, ...extra }),
     });
-    setMessage(res.ok ? "操作成功" : `失败: ${await res.text()}`);
+    setMessage(res.ok ? (locale === "zh" ? "操作成功" : "Done") : `失败: ${await res.text()}`);
     await load();
   }
 
@@ -70,113 +82,158 @@ export default function AdminAgentsPage() {
   }
 
   async function importBundle() {
-    const bundleJson = window.prompt("粘贴导出的 bundle JSON:");
+    const bundleJson = window.prompt(locale === "zh" ? "粘贴导出的 bundle JSON：" : "Paste bundle JSON:");
     if (!bundleJson) return;
-    const slug = window.prompt("新应用 slug（kebab-case）:");
+    const slug = window.prompt(locale === "zh" ? "新应用 slug（kebab-case）：" : "New slug:");
     if (!slug) return;
     const res = await fetch("/api/admin/releases/import", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ bundleJson, slug }),
     });
-    setMessage(res.ok ? "已导入为草稿（需重新授权与审核）" : `失败: ${await res.text()}`);
+    setMessage(
+      res.ok
+        ? locale === "zh" ? "已导入为草稿（需重新授权与审核）" : "Imported as draft"
+        : `失败: ${await res.text()}`,
+    );
     await load();
   }
 
-  return (
-    <main style={{ maxWidth: 900, margin: "2rem auto", fontFamily: "system-ui" }}>
-      <h1>Agent 管理</h1>
-      {message ? <p style={{ color: "#0369a1" }}>{message}</p> : null}
-      <button onClick={importBundle}>导入应用包</button>
+  const pending = drafts.filter((d) => d.state === "in_review");
+  const zh = locale === "zh";
 
-      <h2>待审核草稿</h2>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+  return (
+    <AppShell>
+      <h1 className="page-title">{zh ? "Agent 管理" : "Agent Governance"}</h1>
+      <p className="page-sub">
+        {zh
+          ? "审核发布、上下架、版本回滚、授权与导入导出。"
+          : "Review, publish, delist, roll back, grant, import & export."}
+        <button className="btn btn-sm" style={{ marginLeft: 12 }} onClick={importBundle}>
+          {zh ? "导入应用包" : "Import bundle"}
+        </button>
+      </p>
+      {message ? <p style={{ color: "var(--steel)", fontSize: 13 }}>{message}</p> : null}
+
+      <div className="h2">{zh ? `待审核草稿（${pending.length}）` : `Pending review (${pending.length})`}</div>
+      <table className="table">
         <thead>
           <tr>
-            <th align="left">名称</th>
-            <th align="left">slug</th>
-            <th align="left">版本</th>
-            <th align="left">状态</th>
-            <th align="left">操作</th>
+            <th>{zh ? "应用" : "App"}</th>
+            <th>{zh ? "版本" : "Version"}</th>
+            <th>Builder</th>
+            <th>{zh ? "自动测试" : "Auto tests"}</th>
+            <th style={{ width: 150 }}>{zh ? "操作" : "Actions"}</th>
           </tr>
         </thead>
         <tbody>
-          {drafts
-            .filter((d) => d.state === "in_review")
-            .map((d) => (
-              <tr key={d.draftId}>
-                <td>{d.name}</td>
-                <td>{d.slug}</td>
-                <td>{d.version}</td>
-                <td>{d.state}</td>
-                <td>
-                  <button onClick={() => review(d.draftId, "approve")}>发布</button>
-                  <button onClick={() => review(d.draftId, "reject")}>拒绝</button>
-                </td>
-              </tr>
-            ))}
-          {drafts.filter((d) => d.state === "in_review").length === 0 ? (
+          {pending.length === 0 ? (
             <tr>
-              <td colSpan={5} style={{ color: "#888" }}>
-                暂无待审核草稿
+              <td colSpan={5} style={{ color: "var(--ink-faint)" }}>
+                {zh ? "暂无待审核草稿" : "Nothing pending"}
               </td>
             </tr>
-          ) : null}
+          ) : (
+            pending.map((d) => {
+              let gate: { passed?: boolean; failures?: string[] } | null = null;
+              try {
+                gate = d.autoTestResult ? JSON.parse(d.autoTestResult) : null;
+              } catch {
+                gate = null;
+              }
+              return (
+                <tr key={d.draftId}>
+                  <td>
+                    <strong>{d.name}</strong>
+                    <div style={{ fontSize: 12, color: "var(--ink-soft)", fontFamily: "var(--mono)" }}>
+                      {d.slug}
+                    </div>
+                  </td>
+                  <td style={{ fontFamily: "var(--mono)" }}>{d.version}</td>
+                  <td style={{ fontSize: 13, color: "var(--ink-soft)" }}>{d.builderEmail}</td>
+                  <td>
+                    {gate ? (
+                      <span className={`badge ${gate.passed ? "s-completed" : "s-failed"}`}>
+                        {gate.passed ? (zh ? "通过" : "pass") : `${gate.failures?.length ?? 0} ${zh ? "项失败" : "failures"}`}
+                      </span>
+                    ) : (
+                      <span style={{ color: "var(--ink-faint)" }}>—</span>
+                    )}
+                  </td>
+                  <td>
+                    <button className="btn btn-sm btn-primary" onClick={() => review(d.draftId, "approve")}>
+                      {zh ? "发布" : "Publish"}
+                    </button>{" "}
+                    <button className="btn btn-sm btn-danger" onClick={() => review(d.draftId, "reject")}>
+                      {zh ? "拒绝" : "Reject"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })
+          )}
         </tbody>
       </table>
 
-      <h2>已注册 Agent</h2>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+      <div className="h2">{zh ? "已注册应用" : "Registered apps"}</div>
+      <table className="table">
         <thead>
           <tr>
-            <th align="left">名称</th>
-            <th align="left">slug</th>
-            <th align="left">版本历史</th>
-            <th align="left">状态</th>
-            <th align="left">操作</th>
+            <th>{zh ? "应用" : "App"}</th>
+            <th>{zh ? "版本历史" : "Versions"}</th>
+            <th>{zh ? "状态" : "Status"}</th>
+            <th style={{ width: 300 }}>{zh ? "操作" : "Actions"}</th>
           </tr>
         </thead>
         <tbody>
           {agents.map((a) => (
             <tr key={a.id}>
-              <td>{a.name}</td>
-              <td>{a.slug}</td>
-              <td>{a.versions.map((v) => v.version).join(", ")}</td>
-              <td>{a.listingState}</td>
+              <td>
+                <strong>{a.name}</strong>
+                <div style={{ fontSize: 12, color: "var(--ink-soft)", fontFamily: "var(--mono)" }}>
+                  {a.slug}
+                </div>
+              </td>
+              <td style={{ fontFamily: "var(--mono)", fontSize: 13 }}>
+                {a.versions.map((v) => v.version).join(" · ") || "—"}
+              </td>
+              <td>
+                <span className={`badge ${a.listingState === "listed" ? "s-completed" : "s-cancelled"}`}>
+                  {a.listingState}
+                </span>
+              </td>
               <td>
                 {a.listingState === "listed" ? (
-                  <button onClick={() => manage("delist", a.id)}>下架</button>
-                ) : (
-                  <span style={{ color: "#888" }}>已下架</span>
-                )}
+                  <button className="btn btn-sm" onClick={() => manage("delist", a.id)}>
+                    {zh ? "下架" : "Delist"}
+                  </button>
+                ) : null}{" "}
                 {a.versions.length > 1 ? (
                   <select
-                    onChange={(e) => e.target.value && manage("rollback", a.id, { releaseId: e.target.value })}
+                    className="btn btn-sm"
                     defaultValue=""
+                    onChange={(e) => e.target.value && manage("rollback", a.id, { releaseId: e.target.value })}
+                    style={{ font: "inherit", fontSize: 13 }}
                   >
-                    <option value="">回滚到…</option>
+                    <option value="">{zh ? "回滚到…" : "Roll back to…"}</option>
                     {a.versions.map((v) => (
                       <option key={v.releaseId} value={v.releaseId}>
                         {v.version}
                       </option>
                     ))}
                   </select>
-                ) : null}
-                <button
-                  onClick={() =>
-                    manage("set-grants", a.id, {
-                      grants: [{ subjectType: "all_users" }],
-                    })
-                  }
-                >
-                  授权全体
+                ) : null}{" "}
+                <button className="btn btn-sm" onClick={() => manage("set-grants", a.id, { grants: [{ subjectType: "all_users" }] })}>
+                  {zh ? "授权全体" : "Grant all"}
+                </button>{" "}
+                <button className="btn btn-sm" onClick={() => exportLatest(a.id)}>
+                  {zh ? "导出" : "Export"}
                 </button>
-                <button onClick={() => exportLatest(a.id)}>导出</button>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-    </main>
+    </AppShell>
   );
 }

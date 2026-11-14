@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import AppShell from "@/components/app-shell";
 import { useLocale } from "@/lib/use-locale";
 
 export default function HubPage() {
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const [agents, setAgents] = useState<
     { id: string; slug: string; name: string; description: string }[]
   >([]);
@@ -26,39 +27,43 @@ export default function HubPage() {
   );
 
   return (
-    <main style={{ maxWidth: 900, margin: "2rem auto", fontFamily: "system-ui" }}>
-      <h1>{t("hub.title")}</h1>
-      <input
-        placeholder={t("hub.search")}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        style={{ padding: 8, width: 300, marginBottom: 16 }}
-      />
+    <AppShell>
+      <h1 className="page-title">{t("hub.title")}</h1>
+      <p className="page-sub">
+        {locale === "zh"
+          ? "选择一个应用开始工作；这里只显示管理员授权给你的应用。"
+          : "Pick an app to start — only apps granted to you are listed."}
+      </p>
+      <div className="field" style={{ maxWidth: 340 }}>
+        <input
+          className="input"
+          placeholder={t("hub.search")}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
       {loading ? (
-        <p>{t("common.loading")}</p>
+        <p style={{ color: "var(--ink-faint)" }}>{t("common.loading")}</p>
       ) : filtered.length === 0 ? (
-        <p style={{ color: "#888" }}>{t("hub.empty")}</p>
+        <div className="card" style={{ textAlign: "center", padding: "48px 24px" }}>
+          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6 }}>{t("hub.empty")}</div>
+          <p style={{ color: "var(--ink-soft)", fontSize: 13, margin: 0 }}>
+            {locale === "zh"
+              ? "应用由 Builder 构建并经管理员审核发布后，会出现在这里。"
+              : "Apps appear here after a builder publishes them through review."}
+          </p>
+        </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+        <div className="grid-cards">
           {filtered.map((agent) => (
-            <a
-              key={agent.id}
-              href={`/apps/${agent.slug}`}
-              style={{
-                display: "block",
-                padding: 16,
-                border: "1px solid #ddd",
-                borderRadius: 8,
-                textDecoration: "none",
-                color: "inherit",
-              }}
-            >
-              <strong>{agent.name}</strong>
-              <p style={{ color: "#666", fontSize: 14 }}>{agent.description}</p>
+            <a key={agent.id} className="app-card" href={`/apps/${agent.slug}`}>
+              <div className="glyph">{agent.name.slice(0, 1)}</div>
+              <div className="name">{agent.name}</div>
+              <div className="desc">{agent.description}</div>
             </a>
           ))}
         </div>
       )}
-    </main>
+    </AppShell>
   );
 }

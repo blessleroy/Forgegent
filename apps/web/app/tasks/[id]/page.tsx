@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import AppShell from "@/components/app-shell";
 import { TASK_STATE_LABELS } from "@/lib/i18n";
 import { useLocale } from "@/lib/use-locale";
 
@@ -15,7 +16,11 @@ interface TaskDetail {
   id: string;
   state: string;
   inputSummary: string | null;
-  sessionId: string | null;
+}
+
+function payloadText(payload: Record<string, unknown> | null): string {
+  if (!payload) return "";
+  return String(payload.message ?? payload.reason ?? payload.text ?? payload.note ?? "");
 }
 
 export default function TaskDetailPage() {
@@ -46,8 +51,6 @@ export default function TaskDetailPage() {
 
   useEffect(() => {
     void refresh();
-    // SSE stream: page close does NOT affect execution (AT-12) — this is a
-    // read-only progress subscription with event-id resume.
     const es = new EventSource(`/api/tasks/${params.id}/stream?after=${lastSeqRef.current}`);
     es.addEventListener("task-event", (e) => {
       const event = JSON.parse((e as MessageEvent).data) as TaskEvent;
@@ -78,58 +81,72 @@ export default function TaskDetailPage() {
     await refresh();
   }
 
-  const isTerminal = task && ["completed", "failed", "cancelled", "interrupted"].includes(task.state);
+  const isTerminal =
+    task && ["completed", "failed", "cancelled", "interrupted"].includes(task.state);
   const canInteract =
     task && (task.state === "waiting_input" || isTerminal) && task.state !== "cancelled";
 
   return (
-    <main style={{ maxWidth: 760, margin: "2rem auto", fontFamily: "system-ui" }}>
-      <h1>
-        {t("task.title")}{" "}
+    <AppShell>
+      <h1 className="page-title">
+        {t("task.title")}
         {task ? (
-          <small style={{ color: "#666" }}>
-            {t("task.state")}: {TASK_STATE_LABELS[locale][task.state] ?? task.state}
-          </small>
+          <span className={`badge s-${task.state}`} style={{ marginLeft: 12, verticalAlign: "middle" }}>
+            {TASK_STATE_LABELS[locale][task.state] ?? task.state}
+          </span>
         ) : null}
       </h1>
+      <p className="page-sub">
+        <span style={{ fontFamily: "var(--mono)", fontSize: 12 }}>{params.id}</span>
+      </p>
+
       {task?.inputSummary ? (
-        <pre style={{ background: "#f6f6f6", padding: 12, borderRadius: 8, whiteSpace: "pre-wrap" }}>
-          {task.inputSummary}
-        </pre>
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 12, color: "var(--ink-faint)", marginBottom: 6 }}>
+            {t("app.input")}
+          </div>
+          <div style={{ whiteSpace: "pre-wrap", fontSize: 14 }}>{task.inputSummary}</div>
+        </div>
       ) : null}
 
-      <h2>{t("task.messages")}</h2>
-      <div style={{ border: "1px solid #eee", borderRadius: 8, maxHeight: 300, overflowY: "auto" }}>
+      <div className="h2">{t("task.messages")}</div>
+      <div className="timeline">
         {events.length === 0 ? (
-          <p style={{ color: "#888", padding: 12 }}>…</p>
+          <div className="tl-item" style={{ color: "var(--ink-faint)" }}>…</div>
         ) : (
-          events.map((event) => (
-            <div key={event.seq} style={{ padding: "6px 12px", borderBottom: "1px solid #f4f4f4", fontSize: 14 }}>
-              <code style={{ color: "#0369a1" }}>{event.eventType}</code>{" "}
-              {String(event.safePayload?.message ?? event.safePayload?.note ?? "")}
-            </div>
-          ))
+          events.map((event) => {
+            const hot = event.eventType === "task.continued" || event.eventType === "run.failed";
+            return (
+              <div key={event.seq} className={`tl-item${hot ? " hot" : ""}`}>
+                <span className="tl-type">{event.eventType}</span>{" "}
+                <span className="tl-text">{payloadText(event.safePayload).slice(0, 160)}</span>
+              </div>
+            );
+          })
         )}
       </div>
 
       {canInteract ? (
-        <div style={{ marginTop: 16, display: "flex", gap: 8 }}>
+        <div style={{ marginTop: 20, display: "flex", gap: 8, maxWidth: 640 }}>
           <input
-            style={{ flex: 1, padding: 8 }}
+            className="input"
             placeholder={t("task.continuePlaceholder")}
             value={message}
             onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && sendAction("continue")}
           />
-          <button disabled={busy} onClick={() => sendAction("continue")}>
+          <button className="btn btn-primary" disabled={busy} onClick={() => sendAction("continue")}>
             {t("task.continue")}
           </button>
         </div>
       ) : null}
       {task && !isTerminal && task.state !== "cancelled" ? (
-        <button style={{ marginTop: 12 }} disabled={busy} onClick={() => sendAction("cancel")}>
-          {t("task.cancel")}
-        </button>
+        <div style={{ marginTop: 14 }}>
+          <button className="btn btn-danger" disabled={busy} onClick={() => sendAction("cancel")}>
+            {t("task.cancel")}
+          </button>
+        </div>
       ) : null}
-    </main>
+    </AppShell>
   );
 }

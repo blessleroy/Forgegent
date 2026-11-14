@@ -16,8 +16,8 @@ import { mkdirSync, realpathSync } from "node:fs";
 import { stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { and, eq, isNull, sql } from "@forgegent/db";
-import { files, taskFileRefs, tasks } from "@forgegent/db/src/schema.js";
-import type { ForgegentDb } from "@forgegent/db/src/index.js";
+import { files, taskFileRefs, tasks } from "@forgegent/db";
+import type { ForgegentDb } from "@forgegent/db";
 
 export interface QuotaConfig {
   maxFileBytes: number;

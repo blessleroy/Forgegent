@@ -230,6 +230,9 @@ importers:
       '@forgegent/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@forgegent/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       '@forgegent/studio':
         specifier: workspace:*
         version: link:../../packages/studio
