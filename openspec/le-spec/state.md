@@ -1,5 +1,12 @@
 # Le SPEC 状态 — Forgegent（智体工坊）V1
-更新: 2026-11-12 | 阶段: 已交接（Phase 7 用户批准, 2026-11-12） | 复杂度: complex（全新产品、Admin/Builder/Employee 三角色、构建→审核→发布→运行多流程、沙盒隔离、外部 SDK 集成）
+更新: 2026-11-14 | 阶段: 已交接（实现完成, verify 通过并修复, UI 迭代 v1） | 复杂度: complex（全新产品、Admin/Builder/Employee 三角色、构建→审核→发布→运行多流程、沙盒隔离、外部 SDK 集成）
+
+## 交接后实施记录
+- 52/52 任务完成（M0-M3 + 收尾, 2026-11-13）
+- openspec-verify-change 核验: 3 CRITICAL + 10 WARNING → 全部修复（C1 用户管理 API / C2 usage_records / C3 可观测字段 / W1-W9 测试补强）, 复验 0 CRITICAL
+- UI 重塑（用户反馈"太简陋无入口"）: 锻造工坊设计系统 + AppShell 导航壳 + 全部页面精修 + /files + /change-password（frontend-design skill 指导, 容器实测零错误）
+- 测试 148/148, build 零错误, AT-20 容器冒烟通过
+- 遗留（不阻塞归档）: W7 脚本型 Skill 沙盒路由 / W10 共享资料显式写拒绝 / Builder Agent LLM 后端（现为启发式, 接口就绪待模型端点）
 
 ## 项目
 类型: 全新（绿地，仅 PRD/README/LICENSE，无代码） ｜ 目标: 可自行部署、开源友好的单企业实例 Agent 应用构建与发布平台（依据: Forgegent_V1_AI_PRD.md）
