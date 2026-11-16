@@ -1,0 +1,28 @@
+{
+  "name": "@forgegent/runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@forgegent/db": "workspace:*",
+    "@forgegent/gateway": "workspace:*",
+    "@forgegent/pi-adapter": "workspace:*",
+    "@forgegent/registry": "workspace:*",
+    "@forgegent/sandbox": "workspace:*",
+    "@forgegent/shared": "workspace:*",
+    "@forgegent/skills": "workspace:*",
+    "@forgegent/storage": "workspace:*",
+    "@forgegent/studio": "workspace:*",
+    "@forgegent/tasks": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}

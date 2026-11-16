@@ -1,0 +1,27 @@
+{
+  "name": "@forgegent/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "build": "tsc -b && node -e \"require('node:fs').cpSync('src/migrations','dist/migrations',{recursive:true})\""
+  },
+  "dependencies": {
+    "@forgegent/shared": "workspace:*",
+    "better-sqlite3": "^13.1.1",
+    "drizzle-orm": "^0.38.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "typescript": "^5.7.0"
+  }
+}

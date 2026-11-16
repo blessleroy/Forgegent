@@ -1,0 +1,44 @@
+name: forgegent
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime-web
+    ports:
+      - "3000:3000"
+    environment:
+      FORGEGENT_DATA_DIR: /data
+      FORGEGENT_ADMIN_EMAIL: ${FORGEGENT_ADMIN_EMAIL:-}
+      FORGEGENT_ADMIN_PASSWORD: ${FORGEGENT_ADMIN_PASSWORD:-}
+      FORGEGENT_PUBLIC_URL: ${FORGEGENT_PUBLIC_URL:-http://localhost:3000}
+      FORGEGENT_SEED_DEMO: ${FORGEGENT_SEED_DEMO:-0}
+      FORGEGENT_MODEL_BASE_URL: ${FORGEGENT_MODEL_BASE_URL:-}
+      FORGEGENT_MODEL_NAME: ${FORGEGENT_MODEL_NAME:-gpt-image-1}
+      FORGEGENT_MODEL_API_KEY: ${FORGEGENT_MODEL_API_KEY:-}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
+      BETTER_AUTH_URL: ${FORGEGENT_PUBLIC_URL:-http://localhost:3000}
+      NODE_ENV: production
+    volumes:
+      - forgegent-data:/data
+    restart: unless-stopped
+
+  runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime-runner
+    environment:
+      FORGEGENT_DATA_DIR: /data
+      FORGEGENT_MAX_CONCURRENCY: ${FORGEGENT_MAX_CONCURRENCY:-5}
+      NODE_ENV: production
+    volumes:
+      - forgegent-data:/data
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  forgegent-data:

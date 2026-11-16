@@ -147,3 +147,9 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Forgegent runtime data (SPEC artifacts under openspec/ ARE tracked per decision D13)
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
