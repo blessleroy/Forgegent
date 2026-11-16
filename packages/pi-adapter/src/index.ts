@@ -38,6 +38,14 @@ export type {
   ImageToolConfig,
   ImageResult,
 } from "./tools/poster.js";
+export {
+  runProductionAgent,
+  PROVIDER_ID,
+} from "./production.js";
+export type {
+  ProductionToolSpec,
+  ProductionSessionOptions,
+} from "./production.js";
 
 export interface PlatformTool {
   /** Tool name exposed to the model (e.g. "poster.generate"). */

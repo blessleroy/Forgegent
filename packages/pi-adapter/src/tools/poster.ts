@@ -56,9 +56,32 @@ export function validateImagePayload(b64: string): { ok: true; mime: string } | 
 export function createPosterTool(
   config: ImageToolConfig,
   fetchImpl: typeof fetch = fetch,
-): PosterTool {
+): PosterTool & {
+    takeArtifact(key: string): { b64: string; mimeType: string } | null;
+    drainArtifacts(): { b64: string; mimeType: string }[];
+  } {
   const cache = new Map<string, ImageResult>();
   const base = normalizeBase(config.baseUrl);
+
+  /** Retrieve one generated payload by idempotency key. */
+  function takeArtifact(key: string): { b64: string; mimeType: string } | null {
+    const hit = cache.get(key);
+    if (!hit?.ok) return null;
+    cache.delete(key);
+    return { b64: hit.b64!, mimeType: hit.mimeType! };
+  }
+
+  /** Drain every successful payload produced this run (F1 write-back). */
+  function drainArtifacts(): { b64: string; mimeType: string }[] {
+    const out: { b64: string; mimeType: string }[] = [];
+    for (const [key, hit] of [...cache.entries()]) {
+      if (hit.ok) {
+        out.push({ b64: hit.b64!, mimeType: hit.mimeType! });
+        cache.delete(key);
+      }
+    }
+    return out;
+  }
 
   async function generateOnce(prompt: string): Promise<ImageResult> {
     const controller = new AbortController();
@@ -110,6 +133,8 @@ export function createPosterTool(
     name: "image.generate",
     description:
       "Generate a poster image from a text prompt using the platform-configured image model. Params: {prompt: string, key: string} — key is the per-task idempotency key.",
+    takeArtifact,
+    drainArtifacts,
     async execute(args) {
       const prompt = String(args.prompt ?? "").trim();
       const key = String(args.key ?? "");

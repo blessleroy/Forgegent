@@ -1,20 +1,21 @@
 /**
  * Forgegent Agent Runner — standalone process (design D1).
  *
- * Polls the SQLite task queue with leases, enforces the concurrency cap,
- * and executes tasks via the scheduler. M0 handler runs the task lifecycle
- * with a verified restricted session (no model wiring until endpoints are
- * configured in M1 tasks).
+ * F1: the scheduler now executes tasks through the REAL agent loop —
+ * gateway-wrapped tools, pi session prompt, real artifact write-back,
+ * session_refs persistence, deadline/cancel guards.
  */
 import { join } from "node:path";
 import {
-  appendTaskEvent,
   claimNextTask,
   createDb,
   finishLeasedTask,
+  rawQuery,
   reclaimStaleLeases,
 } from "@forgegent/db";
 import { Scheduler, DEFAULT_SCHEDULER_CONFIG } from "./scheduler.js";
+import { executeGuardedTask } from "./guards.js";
+import { createProductionDeps, executeRestrictedTask } from "./executor.js";
 
 function log(message: string, fields?: Record<string, unknown>): void {
   console.log(
@@ -35,6 +36,9 @@ async function main(): Promise<void> {
   const db = createDb(join(dataDir(), "forgegent.sqlite"));
   log("runner starting", { ...DEFAULT_SCHEDULER_CONFIG, dataDir: dataDir() });
 
+  const workspaceRoot = join(dataDir(), "runner");
+  const deps = createProductionDeps(db, workspaceRoot);
+
   const scheduler = new Scheduler(
     {
       claim: (owner, seconds) => claimNextTask(db, owner, seconds),
@@ -43,14 +47,29 @@ async function main(): Promise<void> {
       reclaim: () => reclaimStaleLeases(db),
     },
     async (task) => {
-      appendTaskEvent(db, task.id, "run.started", {
-        mode: task.mode,
-        release: task.agentReleaseId,
+      const leaseOwner = rawQuery<{ lease_owner: string }>(
+        db,
+        "SELECT lease_owner FROM tasks WHERE id = ?",
+        task.id,
+      )[0]?.lease_owner ?? "runner";
+      await executeGuardedTask(db, task, leaseOwner, {
+        timeoutMs: Number(process.env.FORGEGENT_TASK_TIMEOUT_MS ?? 300_000),
+        run: async () => {
+          const snapshotStore = new (
+            await import("@forgegent/registry")
+          ).ReleaseStore(join(dataDir(), "releases"));
+          return executeRestrictedTask(db, snapshotStore, task, deps);
+        },
       });
-      // M0 lifecycle execution; restricted agent wiring lands in M1.
-      appendTaskEvent(db, task.id, "run.completed", {
-        note: "m0-lifecycle-execution",
-      });
+      // Final state from the DB (executeGuardedTask already closed the lease).
+      const state = rawQuery<{ state: string }>(
+        db,
+        "SELECT state FROM tasks WHERE id = ?",
+        task.id,
+      )[0]?.state;
+      log("task executed", { taskId: task.id, state });
+      // Scheduler finish is a no-op once the lease is closed; map to a
+      // benign outcome for the scheduler bookkeeping.
       return "completed";
     },
     DEFAULT_SCHEDULER_CONFIG,
@@ -65,8 +84,7 @@ async function main(): Promise<void> {
   process.on("SIGTERM", shutdown);
 
   scheduler.start();
-  log("runner started");
-  // Keep the process alive; the interval holds the event loop.
+  log("runner started (production executor)");
   await new Promise(() => {});
 }
 

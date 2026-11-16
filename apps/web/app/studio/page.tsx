@@ -28,12 +28,21 @@ export default function StudioPage() {
   const [slug, setSlug] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [publishedReleases, setPublishedReleases] = useState<
+    { id: string; version: string; slug: string; name: string; isActive: number }[]
+  >([]);
+  const [showCopy, setShowCopy] = useState(false);
 
   const loadDrafts = useCallback(async () => {
     const res = await fetch("/api/studio/drafts");
     if (res.ok) {
       const data = await res.json();
       setDrafts(data.drafts ?? []);
+    }
+    const relRes = await fetch("/api/studio/releases");
+    if (relRes.ok) {
+      const data = await relRes.json();
+      setPublishedReleases(data.releases ?? []);
     }
   }, []);
 
@@ -104,6 +113,24 @@ export default function StudioPage() {
     await loadDrafts();
   }
 
+  async function copyRelease(releaseId: string) {
+    const res = await fetch("/api/studio/copy-release", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ releaseId }),
+    });
+    if (res.ok) {
+      const draft = await res.json();
+      setActiveDraft(draft.draftId);
+      await loadConversation(draft.draftId);
+      setShowCopy(false);
+      setError(`已复制为新草稿（版本 ${draft.payload.version}），可继续修改。`);
+    } else {
+      setError(`复制失败: ${await res.text()}`);
+    }
+    await loadDrafts();
+  }
+
   return (
     <AppShell>
       <h1 className="page-title">{t("nav.studio")}</h1>
@@ -114,9 +141,34 @@ export default function StudioPage() {
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 20 }}>
         <aside>
-          <div className="h2" style={{ marginTop: 0 }}>
+          <div className="h2" style={{ marginTop: 0, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             {locale === "zh" ? "我的草稿" : "Drafts"}
+            <button className="btn btn-sm" onClick={() => setShowCopy(!showCopy)}>
+              {locale === "zh" ? "复制发布版本" : "Copy release"}
+            </button>
           </div>
+          {showCopy ? (
+            <div className="card" style={{ padding: 10, marginBottom: 10, maxHeight: 200, overflowY: "auto" }}>
+              {publishedReleases.length === 0 ? (
+                <p style={{ fontSize: 12, color: "var(--ink-faint)", margin: 0 }}>
+                  {locale === "zh" ? "暂无已发布版本" : "No releases"}
+                </p>
+              ) : (
+                publishedReleases.map((r) => (
+                  <div
+                    key={r.id}
+                    onClick={() => copyRelease(r.id)}
+                    style={{ padding: "4px 0", cursor: "pointer", fontSize: 13, borderBottom: "1px solid #f0f0f0" }}
+                  >
+                    <strong>{r.name}</strong>{" "}
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--ink-soft)" }}>
+                      @{r.version} {r.isActive ? "●" : ""}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : null}
           {drafts.map((draft) => (
             <div
               key={draft.id}

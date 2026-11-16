@@ -43,12 +43,17 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const isBuilder = me?.roles.includes("builder") ?? false;
   const isAdmin = me?.roles.includes("admin") ?? false;
 
-  const navItems = [
+  const navItems: { href: string; label?: string; key?: "nav.hub" | "nav.tasks" | "nav.files" | "nav.studio" | "nav.admin"; icon: string; show: boolean }[] = [
     { href: "/hub", key: "nav.hub" as const, icon: "hub", show: true },
     { href: "/tasks", key: "nav.tasks" as const, icon: "tasks", show: true },
     { href: "/files", key: "nav.files" as const, icon: "files", show: true },
+    { href: "/skills/submit", label: "投稿 Skill", icon: "studio", show: true },
     { href: "/studio", key: "nav.studio" as const, icon: "studio", show: isBuilder },
     { href: "/admin/agents", key: "nav.admin" as const, icon: "admin", show: isAdmin },
+    { href: "/admin/skills", label: "Skills", icon: "admin", show: isAdmin },
+    { href: "/admin/resources", label: "Resources", icon: "admin", show: isAdmin },
+    { href: "/admin/users", label: "Users", icon: "admin", show: isAdmin },
+    { href: "/admin/audit", label: "Audit", icon: "admin", show: isAdmin },
   ];
 
   return (
@@ -74,7 +79,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               className={pathname.startsWith(item.href) ? "active" : ""}
             >
               <Icon name={item.icon} />
-              {t(item.key)}
+              {item.label ?? t(item.key)}
             </Link>
           ))}
         </nav>

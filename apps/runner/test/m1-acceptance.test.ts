@@ -111,6 +111,10 @@ describe("M1 acceptance (task 4.8 — AT-04 flow with mock agent)", () => {
           },
           saveArtifact: (ownerId, taskId, filename, mime, bytes) =>
             fileStore.put({ ownerId, filename, mime, bytes, taskId }),
+          trackArtifactSource: () => undefined,
+          collectArtifacts: () => [
+            { mime: "image/png", bytes: Buffer.from("fake-png-bytes") },
+          ],
         });
         return outcome;
       },
@@ -123,12 +127,22 @@ describe("M1 acceptance (task 4.8 — AT-04 flow with mock agent)", () => {
       userId: employeeId,
       roles: ["employee"],
     });
+    const evs = readTaskEvents(db, task.id);
+    console.log("EVLIST:", evs.map((e) => e.eventType + "=" + JSON.stringify(e.safePayload).slice(0, 300)).join(","));
     expect(done.state).toBe("completed");
+    expect(evs.map((e) => e.eventType)).toEqual([
+      "task.created",
+      "run.started",
+      "release.loaded",
+      "agent.output",
+      "artifact.saved",
+      "run.completed",
+    ]);
 
     // Artifact landed in the employee's personal space, listed and owned.
     const files = await fileStore.list(employeeId);
     expect(files).toHaveLength(1);
-    expect(files[0]!.filename).toMatch(/^poster-1\.0\.0\.png$/);
+    expect(files[0]!.filename).toMatch(/^artifact-1\.0\.0-1\.png$/);
 
     // Event history is complete and resumable by seq (SSE resume semantics).
     const events = readTaskEvents(db, task.id);

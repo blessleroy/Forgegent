@@ -1,25 +1,30 @@
 /**
  * Restricted task executor (task 4.7 backend side; design D2/D5).
  *
- * Loads the immutable release snapshot, wires the platform tools (poster
- * image tool through the configured OpenAI-compatible endpoint), runs the
- * agent session, and writes artifacts back to the owner's file space.
- * Model endpoints come from the resources table; the API key itself is
- * resolved from the server environment (never stored in SQLite).
+ * F1 rewiring: the production path now runs the REAL pi agent loop through
+ * runProductionAgent against the admin-configured endpoint. Platform tools
+ * are wrapped by the Tool Gateway (every call checked: user ∩ release ∩
+ * task + file ACL + egress), generated artifacts are written back from the
+ * poster tool's real payloads, and session_refs is persisted for
+ * crash-recovery resume (FR-06.6).
  */
 import { join } from "node:path";
 import {
   appendTaskEvent,
   rawExec,
   rawQuery,
-  readTaskEvents,
   type ForgegentDb,
 } from "@forgegent/db";
+import type { ClaimedTask } from "@forgegent/db";
 import { FileStore } from "@forgegent/storage";
 import { ReleaseStore } from "@forgegent/registry";
-import type { ClaimedTask } from "@forgegent/db";
-import { createPlatformSession, createPosterTool } from "@forgegent/pi-adapter";
-import type { PlatformTool } from "@forgegent/pi-adapter";
+import { withGateway } from "@forgegent/gateway";
+import { egressAllowlistForRelease } from "@forgegent/registry";
+import {
+  createPosterTool,
+  runProductionAgent,
+  type ProductionToolSpec,
+} from "@forgegent/pi-adapter";
 
 export interface ModelEndpointConfig {
   baseUrl: string;
@@ -27,8 +32,7 @@ export interface ModelEndpointConfig {
   apiKeyEnv: string;
 }
 
-/** Resolve the model endpoint resource for a release's modelRef (or the
- *  single configured endpoint in V1). Key resolves from env, not storage. */
+/** Resolve the model endpoint resource (key via env, never stored). */
 export function resolveModelEndpoint(
   db: ForgegentDb,
 ): ModelEndpointConfig | null {
@@ -45,15 +49,28 @@ export function resolveModelEndpoint(
 }
 
 export interface ExecutorDeps {
-  /** Runs the agent loop for the input; returns assistant output. */
+  /**
+   * Runs the agent loop. Production default wires runProductionAgent with
+   * gateway-wrapped tools; tests inject a fake.
+   */
   runAgent(input: {
     systemPrompt?: string;
     userMessage: string;
-    tools: PlatformTool[];
+    tools: ProductionToolSpec[];
+    toolAllowlist: string[];
+    onEvent?: (e: { type: string; text?: string }) => void;
   }): Promise<string>;
-  /** Writes an artifact (defaults to FileStore). */
-  saveArtifact(ownerId: string, taskId: string, filename: string, mime: string, bytes: Buffer):
-    Promise<{ id: string }>;
+  saveArtifact(
+    ownerId: string,
+    taskId: string,
+    filename: string,
+    mime: string,
+    bytes: Buffer,
+  ): Promise<{ id: string }>;
+  /** Track artifact sources for write-back (poster tool payloads). */
+  trackArtifactSource?(name: string, ref: unknown): void;
+  /** Collect artifact payloads produced during the run. */
+  collectArtifacts?(): { mime: string; bytes: Buffer }[];
 }
 
 export async function executeRestrictedTask(
@@ -76,7 +93,10 @@ export async function executeRestrictedTask(
     task.agentReleaseId,
   )[0];
   if (!releaseRow) {
-    appendTaskEvent(db, task.id, "run.failed", { reason: "release snapshot missing" });
+    appendTaskEvent(db, task.id, "run.failed", {
+      errorType: "release-missing", requestId,
+      reason: "release snapshot missing",
+    });
     return "failed";
   }
   let snapshot;
@@ -84,6 +104,7 @@ export async function executeRestrictedTask(
     snapshot = store.loadSnapshot(releaseRow.immutable_package_path, releaseRow.checksum);
   } catch (error) {
     appendTaskEvent(db, task.id, "run.failed", {
+      errorType: "snapshot-integrity", requestId,
       reason: `snapshot integrity failure: ${String((error as Error).message).slice(0, 120)}`,
     });
     return "failed";
@@ -96,92 +117,155 @@ export async function executeRestrictedTask(
   const endpoint = resolveModelEndpoint(db);
   if (!endpoint) {
     appendTaskEvent(db, task.id, "run.failed", {
-      errorType: "model-endpoint-missing",
-      requestId,
+      errorType: "model-endpoint-missing", requestId,
       reason: "模型端点未配置 — 请管理员在资源配置中添加 OpenAI 兼容端点 / model endpoint not configured",
     });
     return "failed";
   }
-  const apiKey = process.env[endpoint.apiKeyEnv] ?? "";
-  const tools: PlatformTool[] = (snapshot.payload.toolRefs ?? []).includes("image.generate")
-    ? [createPosterTool({ baseUrl: endpoint.baseUrl, apiKey, model: endpoint.model })]
+
+  // ---- F1: gateway-wrapped platform tools (FR-09.3 production wiring) ----
+  const egress = egressAllowlistForRelease(db, task.agentReleaseId);
+  const declaredTools = rawQuery<{ tool_id: string }>(
+    db,
+    "SELECT tool_id FROM tool_policies WHERE release_id = ?",
+    task.agentReleaseId,
+  ).map((r) => r.tool_id);
+  const gatewayCtx = {
+    userId: task.ownerId,
+    roles: ["employee"],
+    taskId: task.id,
+  };
+  const releaseToolRefs: string[] = Array.isArray(snapshot.payload.toolRefs)
+    ? snapshot.payload.toolRefs
     : [];
+  const posterTool =
+    releaseToolRefs.includes("image.generate") &&
+    declaredTools.includes("image.generate")
+      ? createPosterTool({
+          baseUrl: endpoint.baseUrl,
+          apiKey: process.env[endpoint.apiKeyEnv] ?? "",
+          model: endpoint.model,
+        })
+      : null;
+  const tools: ProductionToolSpec[] = [];
+  if (posterTool) {
+    deps.trackArtifactSource?.("image.generate", posterTool);
+    tools.push({
+      name: "image.generate",
+      description: posterTool.description,
+      execute: (args) => posterTool.execute(args),
+    });
+  }
+  const gatewayTools = tools.map((tool) => ({
+    ...tool,
+    execute: withGateway(
+      db,
+      { ...gatewayCtx, toolId: tool.name },
+      tool.execute,
+      { egressAllowlist: egress },
+    ),
+  }));
+  const toolAllowlist = gatewayTools.map((t) => t.name);
 
   try {
     const output = await deps.runAgent({
       systemPrompt: snapshot.payload.prompts?.system,
       userMessage: task.inputSummary ?? "",
-      tools,
+      tools: gatewayTools,
+      toolAllowlist,
+      onEvent: (e) => {
+        if (e.type === "text_delta" && e.text) {
+          // Streaming deltas are aggregated; the final text lands in
+          // agent.output below (bounded).
+        }
+      },
     });
-    // Token accounting (V1 estimate: chars/4; refine with real usage data
-    // when the model endpoint reports it). Observability spec (task 9.6).
     const inputTokens = Math.ceil((task.inputSummary ?? "").length / 4);
     const outputTokens = Math.ceil(output.length / 4);
-    // Token/费用预算（audit/observability + N6 结构化失败）。
     const budget = typeof task.budget === "string"
-      ? (JSON.parse(task.budget) as { maxTokens?: number; maxCostCents?: number })
+      ? (JSON.parse(task.budget) as { maxTokens?: number })
       : null;
     if (budget?.maxTokens && inputTokens + outputTokens > budget.maxTokens) {
       appendTaskEvent(db, task.id, "run.failed", {
-        errorType: "token-budget-exceeded",
-        requestId,
+        errorType: "token-budget-exceeded", requestId,
         durationMs: Date.now() - startedAt,
         reason: `Token 预算超限（${inputTokens + outputTokens} > ${budget.maxTokens}）— 安全终止`,
       });
       rawExec(
         db,
         "INSERT INTO usage_records (id, task_id, model, input_tokens, output_tokens, estimated_cost) VALUES (?, ?, ?, ?, ?, 0)",
-        crypto.randomUUID(),
-        task.id,
-        endpoint.model,
-        inputTokens,
-        outputTokens,
+        crypto.randomUUID(), task.id, endpoint.model, inputTokens, outputTokens,
       );
       return "failed";
     }
     appendTaskEvent(db, task.id, "agent.output", { text: output.slice(0, 2000) });
-    const toolCalls = readTaskEvents(db, task.id).filter((e) =>
-      e.eventType.startsWith("tool."),
-    ).length;
 
-    // Artifact write-back (PRD §8.2 step 6): validated then persisted to the
-    // owner's personal space.
-    if (snapshot.payload.ui.type === "form-result") {
-      const artifact = await deps.saveArtifact(
+    // ---- F1: real artifacts from tool payloads (no placeholders) ----
+    const collected = deps.collectArtifacts?.() ?? [];
+    for (const [i, artifact] of collected.entries()) {
+      const ext = artifact.mime.includes("png") ? "png" : artifact.mime.includes("jpeg") ? "jpg" : "bin";
+      const saved = await deps.saveArtifact(
         task.ownerId,
         task.id,
-        `poster-${snapshot.version}.png`,
-        "image/png",
-        Buffer.from("IyBGb3JnZWdlbnQgYXJ0aWZhY3Q="), // placeholder marker; real bytes come from tools in M2
+        `artifact-${snapshot.version}-${i + 1}.${ext}`,
+        artifact.mime,
+        artifact.bytes,
+      );
+      rawExec(
+        db,
+        "INSERT OR REPLACE INTO task_file_refs (task_id, file_id, direction) VALUES (?, ?, 'output')",
+        task.id,
+        saved.id,
       );
       appendTaskEvent(db, task.id, "artifact.saved", {
-        fileId: artifact.id,
-        filename: `poster-${snapshot.version}.png`,
+        fileId: saved.id,
+        mime: artifact.mime,
+        bytes: artifact.bytes.byteLength,
       });
     }
+
     appendTaskEvent(db, task.id, "run.completed", {
       requestId,
       durationMs: Date.now() - startedAt,
-      toolCalls,
+      toolCalls: collected.length,
       model: endpoint.model,
       inputTokens,
       outputTokens,
     });
-    // Usage record (audit-observability spec): per-task model cost trail.
     rawExec(
       db,
       "INSERT INTO usage_records (id, task_id, model, input_tokens, output_tokens, estimated_cost) VALUES (?, ?, ?, ?, ?, 0)",
-      crypto.randomUUID(),
-      task.id,
-      endpoint.model,
-      inputTokens,
-      outputTokens,
+      crypto.randomUUID(), task.id, endpoint.model, inputTokens, outputTokens,
     );
+    // FR-06.6: persist the session reference for crash-resume.
+    if (task.sessionId) {
+      const existing = rawQuery<{ id: string }>(
+        db,
+        "SELECT id FROM session_refs WHERE task_id = ?",
+        task.id,
+      )[0];
+      if (existing) {
+        rawExec(
+          db,
+          "UPDATE session_refs SET updated_at = ? WHERE task_id = ?",
+          Date.now(),
+          task.id,
+        );
+      } else {
+        rawExec(
+          db,
+          "INSERT INTO session_refs (id, task_id, session_path, updated_at) VALUES (?, ?, ?, ?)",
+          crypto.randomUUID(),
+          task.id,
+          `sessions/${task.sessionId}`,
+          Date.now(),
+        );
+      }
+    }
     return "completed";
   } catch (error) {
     appendTaskEvent(db, task.id, "run.failed", {
-      errorType: "agent-error",
-      requestId,
+      errorType: "agent-error", requestId,
       durationMs: Date.now() - startedAt,
       reason: String((error as Error).message).slice(0, 500),
     });
@@ -189,43 +273,43 @@ export async function executeRestrictedTask(
   }
 }
 
-/** Production deps wiring: real pi session + FileStore artifacts. */
+/** Production deps: real pi loop + FileStore artifacts (F1). */
 export function createProductionDeps(
   db: ForgegentDb,
   workspaceRoot: string,
-  releasesDir: string,
 ): ExecutorDeps {
-  const store = new ReleaseStore(releasesDir);
-  void store;
+  const artifactRefs = new Map<string, { drainArtifacts(): { b64: string; mimeType: string }[] }>();
   return {
-    async runAgent({ systemPrompt, userMessage, tools }) {
-      // Real session execution requires the pi SDK session.prompt loop;
-      // wired in M2 (task 6.x builder agent uses the same loop). For M1 the
-      // restricted runner verifies wiring and reports the model dependency.
-      const session = await createPlatformSession({
-        cwd: workspaceRoot,
-        mode: "restricted",
-        toolAllowlist: [],
+    async runAgent({ systemPrompt, userMessage, tools, toolAllowlist, onEvent }) {
+      const endpoint = resolveModelEndpoint(db);
+      if (!endpoint) throw new Error("model endpoint missing");
+      const result = await runProductionAgent({
+        cwd: join(workspaceRoot, "work"),
+        userPrompt: userMessage,
+        endpoint,
+        systemPrompt,
+        tools,
+        toolAllowlist,
+        onEvent,
       });
-      session.dispose();
-      void systemPrompt;
-      void tools;
-      void userMessage;
-      throw new Error(
-        "M1 executor: agent prompt loop arrives with M2 studio tasks — configure endpoints and await M2",
-      );
+      return result.text;
     },
     async saveArtifact(ownerId, taskId, filename, mime, bytes) {
       const store = new FileStore(join(workspaceRoot, "files"), db);
       const saved = await store.put({ ownerId, filename, mime, bytes, taskId });
-      rawExecSafe(db, "INSERT OR REPLACE INTO task_file_refs (task_id, file_id, direction) VALUES (?, ?, 'output')", taskId, saved.id);
       return saved;
     },
+    trackArtifactSource(name, ref) {
+      artifactRefs.set(name, ref as never);
+    },
+    collectArtifacts() {
+      const out: { mime: string; bytes: Buffer }[] = [];
+      for (const ref of artifactRefs.values()) {
+        for (const artifact of ref.drainArtifacts()) {
+          out.push({ mime: artifact.mimeType, bytes: Buffer.from(artifact.b64, "base64") });
+        }
+      }
+      return out;
+    },
   };
-}
-
-function rawExecSafe(db: ForgegentDb, sql: string, ...params: unknown[]): void {
-  (db as unknown as {
-    $client: { prepare(s: string): { run(...p: unknown[]): unknown } };
-  }).$client.prepare(sql).run(...params);
 }

@@ -157,6 +157,10 @@ describe("M2 acceptance (task 6.6 — full studio loop)", () => {
           runAgent: async ({ userMessage }) => `已生成海报：${userMessage.split("\n")[0]}`,
           saveArtifact: (ownerId, taskId, filename, mime, bytes) =>
             fileStore.put({ ownerId, filename, mime, bytes, taskId }),
+          trackArtifactSource: () => undefined,
+          collectArtifacts: () => [
+            { mime: "image/png", bytes: Buffer.from("m2-png") },
+          ],
         }),
       { pollIntervalMs: 60_000, maxConcurrency: 5, leaseSeconds: 60 },
     );

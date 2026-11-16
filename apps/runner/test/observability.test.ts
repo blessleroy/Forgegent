@@ -88,6 +88,10 @@ describe("C2/C3 — usage records + observability fields", () => {
       saveArtifact: async () => ({ id: "f" }),
     });
     expect(outcome).toBe("completed");
+    {
+      const evs = rawQuery<{ event_type: string; safe_payload: string }>(db, "SELECT event_type, safe_payload FROM task_events WHERE task_id = 'obs-task' AND event_type = 'run.failed'");
+      if (evs.length) console.log("FAIL-EVENT:", evs[0].safe_payload);
+    }
     const usage = rawQuery<{ model: string; input_tokens: number; output_tokens: number }>(
       db,
       "SELECT model, input_tokens, output_tokens FROM usage_records WHERE task_id = 'obs-task'",

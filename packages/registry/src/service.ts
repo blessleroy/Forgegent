@@ -112,8 +112,11 @@ export async function createDraft(
         `skill ${ref.id}@${ref.version} not found — bind from published skills only`,
       );
     }
-    if (ref.sha256 && published.status === "published") {
-      void ref.sha256; // checksum lock verified at load time (skills loader)
+    if (published.status !== "published") {
+      throw new RegistryError(
+        "VALIDATION",
+        `skill ${ref.id}@${ref.version} is ${published.status} — AT-09`,
+      );
     }
   }
   const existing = await db
