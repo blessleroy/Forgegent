@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { rawExec, rawQuery } from "@forgegent/db";
-import { validateResourceKind, addSharedDocResource, declareHttpTool } from "@forgegent/registry";
+import { addSharedDocResource, declareHttpTool } from "@forgegent/registry";
 import { probeOpenAiCompatibleEndpoint } from "@forgegent/pi-adapter";
 import { guardRequest } from "@/lib/guard";
 import { ensureBootstrap, getAuth, getDb } from "@/lib/server";
