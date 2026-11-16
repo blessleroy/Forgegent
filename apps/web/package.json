@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@forgegent/db": "workspace:*",
+    "@forgegent/pi-adapter": "workspace:*",
     "@forgegent/registry": "workspace:*",
     "@forgegent/shared": "workspace:*",
     "@forgegent/skills": "workspace:*",

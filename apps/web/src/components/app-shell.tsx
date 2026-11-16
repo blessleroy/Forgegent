@@ -79,7 +79,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
               className={pathname.startsWith(item.href) ? "active" : ""}
             >
               <Icon name={item.icon} />
-              {item.label ?? t(item.key)}
+              {item.label ?? t(item.key!)}
             </Link>
           ))}
         </nav>

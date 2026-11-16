@@ -227,6 +227,9 @@ importers:
       '@forgegent/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@forgegent/pi-adapter':
+        specifier: workspace:*
+        version: link:../../packages/pi-adapter
       '@forgegent/registry':
         specifier: workspace:*
         version: link:../../packages/registry
