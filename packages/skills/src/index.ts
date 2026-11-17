@@ -9,7 +9,7 @@
  *   skill versions pinned by an agent release, verifying each hash.
  */
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { rawExec, rawQuery } from "@forgegent/db";
 import type { ForgegentDb } from "@forgegent/db";
@@ -79,17 +79,145 @@ export class SkillStore {
     for (const [path, content] of Object.entries(pkg.files ?? {})) void path, void content;
     return { pkg, hash: hashSkillPackage(pkg) };
   }
+
+  /* --------------- submission parking (remediation 2.5) --------------- */
+
+  /** Persist a submission package under submissions/<id>/ (draft area —
+   *  never the production loader source). */
+  writeSubmission(submissionId: string, pkg: SkillPackage): void {
+    if (!/^[a-zA-Z0-9._-]+$/.test(submissionId)) {
+      throw new Error("invalid submission id");
+    }
+    const dir = join(this.root, "submissions", submissionId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "SKILL.md"), pkg.markdown);
+    for (const [path, content] of Object.entries(pkg.files ?? {})) {
+      if (path.includes("..") || path.startsWith("/")) {
+        throw new Error(`unsafe skill file path: ${path}`);
+      }
+      mkdirSync(join(dir, path, ".."), { recursive: true });
+      writeFileSync(join(dir, path), content);
+    }
+  }
+
+  /** Read back a parked submission (the content an approval publishes). */
+  readSubmission(submissionId: string): SkillPackage {
+    const dir = join(this.root, "submissions", submissionId);
+    if (!existsSync(join(dir, "SKILL.md"))) {
+      throw new Error(`submission ${submissionId} content not found`);
+    }
+    const files: Record<string, string> = {};
+    const walk = (current: string, prefix: string): void => {
+      for (const entry of readdirSync(current, { withFileTypes: true })) {
+        if (entry.name === "SKILL.md") continue;
+        const full = join(current, entry.name);
+        const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) walk(full, rel);
+        else files[rel] = readFileSync(full, "utf-8");
+      }
+    };
+    walk(dir, "");
+    return {
+      name: submissionId,
+      markdown: readFileSync(join(dir, "SKILL.md"), "utf-8"),
+      files,
+    };
+  }
+}
+
+/* ------------------------ scripted detection (2.7) ------------------------ */
+
+const SCRIPT_EXTENSIONS = new Set([
+  ".sh", ".bash", ".zsh", ".py", ".js", ".mjs", ".cjs", ".ts", ".rb", ".pl",
+  ".exe", ".bat", ".cmd", ".ps1",
+]);
+const DEPENDENCY_MANIFESTS = new Set([
+  "package.json", "requirements.txt", "Pipfile", "pyproject.toml", "setup.py",
+  "Gemfile", "go.mod", "pom.xml", "build.gradle", "Cargo.toml", "Makefile",
+]);
+
+/**
+ * FR-04.5: a package containing executable scripts or dependency manifests
+ * is "scripted" — its production runtime must be sandboxed.
+ */
+export function isScriptedPackage(pkg: SkillPackage): boolean {
+  for (const path of Object.keys(pkg.files ?? {})) {
+    const base = path.split("/").pop() ?? path;
+    const dot = base.lastIndexOf(".");
+    const ext = dot >= 0 ? base.slice(dot).toLowerCase() : "";
+    if (SCRIPT_EXTENSIONS.has(ext) || DEPENDENCY_MANIFESTS.has(base)) return true;
+  }
+  return false;
+}
+
+/* --------------------- shared publish core (D46/2.5) --------------------- */
+
+export interface PublishSkillResult {
+  skillId: string;
+  checksum: string;
+  isScripted: boolean;
+}
+
+/**
+ * Publish a hashed skill version: write the package, upsert the skills row
+ * (submitter attribution) and insert the published version. Shared by the
+ * submission-review approve path and the D46 embedded-skill 连带审核 path.
+ */
+export function publishSkillPackage(
+  db: ForgegentDb,
+  store: SkillStore,
+  params: {
+    slug: string;
+    version: string;
+    pkg: SkillPackage;
+    submitterId: string;
+    reviewerId: string;
+  },
+): PublishSkillResult {
+  const checksum = store.write(params.slug, params.version, params.pkg);
+  const scripted = isScriptedPackage(params.pkg) ? 1 : 0;
+  const existing = rawQuery<{ id: string }>(
+    db,
+    "SELECT id FROM skills WHERE slug = ?",
+    params.slug,
+  )[0];
+  const skillId = existing?.id ?? crypto.randomUUID();
+  if (!existing) {
+    rawExec(
+      db,
+      "INSERT INTO skills (id, slug, name, created_by) VALUES (?, ?, ?, ?)",
+      skillId,
+      params.slug,
+      params.slug,
+      params.submitterId,
+    );
+  }
+  rawExec(
+    db,
+    "INSERT INTO skill_versions (id, skill_id, version, package_path, checksum, status, is_scripted) VALUES (?, ?, ?, ?, ?, 'published', ?)",
+    crypto.randomUUID(),
+    skillId,
+    params.version,
+    `${params.slug}/${params.version}`,
+    checksum,
+    scripted,
+  );
+  return { skillId, checksum, isScripted: scripted === 1 };
 }
 
 /* --------------------------- submission flow --------------------------- */
 
-/** Employee submission → pending review (投稿 ≠ 安装/运行). */
+/** Employee submission → pending review (投稿 ≠ 安装/运行). The package is
+ *  PERSISTED (remediation 2.5): what gets reviewed and published is exactly
+ *  what the submitter sent, not a replacement supplied at review time. */
 export function submitSkill(
   db: ForgegentDb,
+  store: SkillStore,
   params: { submitterId: string; pkg: SkillPackage },
 ): { submissionId: string } {
   const submissionId = crypto.randomUUID();
   const contentPath = `submissions/${submissionId}`;
+  store.writeSubmission(submissionId, params.pkg);
   rawExec(
     db,
     "INSERT INTO skill_submissions (id, submitter_id, content_path, review_state) VALUES (?, ?, ?, 'pending')",
@@ -97,8 +225,6 @@ export function submitSkill(
     params.submitterId,
     contentPath,
   );
-  // The package itself is parked in the submission store path (draft area,
-  // never the production loader source).
   return { submissionId };
 }
 
@@ -109,7 +235,8 @@ export interface ReviewOutcome {
   checksum?: string;
 }
 
-/** Admin review (8.2): approve publishes a hashed version; reject keeps the note. */
+/** Admin review (8.2): approve publishes a hashed version; reject keeps the
+ *  note. The published package defaults to the SUBMITTED content (2.5). */
 export async function reviewSkillSubmission(
   db: ForgegentDb,
   store: SkillStore,
@@ -119,13 +246,14 @@ export async function reviewSkillSubmission(
     decision: "approve" | "reject";
     skillName: string;
     version: string;
-    pkg: SkillPackage;
+    /** Override is for tests; production always publishes the submission. */
+    pkg?: SkillPackage;
     note?: string;
   },
 ): Promise<ReviewOutcome> {
-  const row = rawQuery<{ review_state: string }>(
+  const row = rawQuery<{ review_state: string; submitter_id: string }>(
     db,
-    "SELECT review_state FROM skill_submissions WHERE id = ?",
+    "SELECT review_state, submitter_id FROM skill_submissions WHERE id = ?",
     params.submissionId,
   )[0];
   if (!row) throw new Error("submission not found");
@@ -142,32 +270,14 @@ export async function reviewSkillSubmission(
     );
     return { state: "rejected" };
   }
-  const checksum = store.write(params.skillName, params.version, params.pkg);
-  const existing = rawQuery<{ id: string }>(
-    db,
-    "SELECT id FROM skills WHERE slug = ?",
-    params.skillName,
-  )[0];
-  const skillId = existing?.id ?? crypto.randomUUID();
-  if (!existing) {
-    rawExec(
-      db,
-      "INSERT INTO skills (id, slug, name, created_by) VALUES (?, ?, ?, ?)",
-      skillId,
-      params.skillName,
-      params.skillName,
-      params.reviewerId,
-    );
-  }
-  rawExec(
-    db,
-    "INSERT INTO skill_versions (id, skill_id, version, package_path, checksum, status) VALUES (?, ?, ?, ?, ?, 'published')",
-    crypto.randomUUID(),
-    skillId,
-    params.version,
-    `${params.skillName}/${params.version}`,
-    checksum,
-  );
+  const pkg = params.pkg ?? store.readSubmission(params.submissionId);
+  const published = publishSkillPackage(db, store, {
+    slug: params.skillName,
+    version: params.version,
+    pkg,
+    submitterId: row.submitter_id,
+    reviewerId: params.reviewerId,
+  });
   rawExec(
     db,
     "UPDATE skill_submissions SET review_state = 'approved', reviewer_id = ?, review_note = ? WHERE id = ?",
@@ -177,13 +287,14 @@ export async function reviewSkillSubmission(
   );
   return {
     state: "published",
-    skillId,
+    skillId: published.skillId,
     version: params.version,
-    checksum,
+    checksum: published.checksum,
   };
 }
 
-/** Revoke: blocks new bindings only; running releases unaffected (D18). */
+/** Revoke: blocks new bindings only; running releases unaffected (D18).
+ *  The revoking admin is recorded (remediation 2.5). */
 export function revokeSkillVersion(
   db: ForgegentDb,
   params: { skillVersionId: string; adminId: string },
@@ -196,7 +307,8 @@ export function revokeSkillVersion(
   if (!result) throw new Error("published skill version not found");
   rawExec(
     db,
-    "UPDATE skill_versions SET status = 'revoked' WHERE id = ?",
+    "UPDATE skill_versions SET status = 'revoked', revoked_by = ? WHERE id = ?",
+    params.adminId,
     params.skillVersionId,
   );
 }

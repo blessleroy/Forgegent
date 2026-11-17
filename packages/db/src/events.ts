@@ -4,8 +4,16 @@
  */
 import { randomUUID } from "node:crypto";
 import type { ForgegentDb } from "./index.js";
+import { redact } from "./audit.js";
 
-/** Append a sanitized event; returns the allocated sequence number. */
+/**
+ * Append a sanitized event; returns the allocated sequence number.
+ *
+ * Task 1.7 (remediation #12): every payload passes through the same redact()
+ * used by audit logs — secret-shaped keys/values (sk-, Bearer, long hex) are
+ * masked before persistence, so nothing unredacted can reach the SSE stream
+ * or the events replay API regardless of the writer.
+ */
 export function appendTaskEvent(
   db: ForgegentDb,
   taskId: string,
@@ -32,7 +40,7 @@ export function appendTaskEvent(
       taskId,
       seq,
       eventType,
-      safePayload ? JSON.stringify(safePayload) : null,
+      safePayload ? JSON.stringify(redact(safePayload)) : null,
     );
   return seq;
 }

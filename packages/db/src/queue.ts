@@ -9,6 +9,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { ForgegentDb } from "./index.js";
+import { appendTaskEvent } from "./events.js";
 
 /** States that hold an active lease on a session. */
 const ACTIVE_STATES = ["starting", "running", "waiting_input"] as const;
@@ -22,6 +23,8 @@ export interface ClaimedTask {
   mode: string;
   inputSummary: string | null;
   sessionId: string | null;
+  /** Queued employee follow-ups consumed by this round (remediation 2.12). */
+  pendingFollowup?: string | null;
   budget: unknown;
 }
 
@@ -42,9 +45,14 @@ export function claimNextTask(
   leaseOwner: string,
   leaseSeconds: number,
 ): ClaimedTask | null {
+  const client = clientOf(db);
   const now = Date.now();
   const leaseUntil = new Date(now + leaseSeconds * 1000);
-  const row = clientOf(db)
+
+  // 1) Fresh pending tasks (pending -> starting).
+  //    Session exclusivity (D39): a session blocks while any of its tasks is
+  //    actively leased OR waiting for user input — even without a lease.
+  const pending = client
     .prepare(
       `UPDATE tasks
        SET state = 'starting', lease_owner = ?, lease_until = ?
@@ -58,8 +66,10 @@ export function claimNextTask(
                WHERE o.session_id IS NOT NULL
                  AND o.session_id = t.session_id
                  AND o.id != t.id
-                 AND o.lease_until > ?
-                 AND o.state IN ('starting', 'running', 'waiting_input')
+                 AND (
+                   (o.lease_until > ? AND o.state IN ('starting', 'running'))
+                   OR o.state = 'waiting_input'
+                 )
              )
            )
          ORDER BY t.created_at, t.id
@@ -67,10 +77,59 @@ export function claimNextTask(
        )
        RETURNING id, owner_id AS ownerId, agent_release_id AS agentReleaseId,
                  state, origin, mode,
-                 input_summary AS inputSummary, session_id AS sessionId, budget`,
+                 input_summary AS inputSummary, session_id AS sessionId,
+                 pending_followup AS pendingFollowup, budget`,
     )
     .get(leaseOwner, leaseUntil.getTime(), now) as ClaimedTask | undefined;
-  return row ?? null;
+  if (pending) return pending;
+
+  // 2) Resumable tasks (remediation 2.11/2.12): `running` with NO lease —
+  //    the employee replied to a waiting_input task; continueTask flipped it
+  //    back to running. We lease in place (state stays running — the task is
+  //    already inside its execution lifecycle) and the executor resumes the
+  //    session with the queued follow-up. The follow-up is captured BEFORE
+  //    being cleared (RETURNING would see the cleared value).
+  const candidate = client
+    .prepare(
+      `SELECT t.id FROM tasks t
+       WHERE t.state = 'running'
+         AND t.lease_owner IS NULL
+         AND t.lease_until IS NULL
+         AND (
+           t.session_id IS NULL
+           OR t.session_id NOT IN (
+             SELECT o.session_id FROM tasks o
+             WHERE o.session_id IS NOT NULL
+               AND o.session_id = t.session_id
+               AND o.id != t.id
+               AND (
+                 (o.lease_until > ? AND o.state IN ('starting', 'running'))
+                 OR o.state = 'waiting_input'
+               )
+           )
+         )
+       ORDER BY t.created_at, t.id
+       LIMIT 1`,
+    )
+    .get(now) as { id: string } | undefined;
+  if (!candidate) return null;
+  const captured = client
+    .prepare(
+      `SELECT id, owner_id AS ownerId, agent_release_id AS agentReleaseId,
+              state, origin, mode,
+              input_summary AS inputSummary, session_id AS sessionId,
+              pending_followup AS pendingFollowup, budget
+       FROM tasks WHERE id = ?`,
+    )
+    .get(candidate.id) as ClaimedTask | undefined;
+  const claimed = client
+    .prepare(
+      `UPDATE tasks SET lease_owner = ?, lease_until = ?, pending_followup = NULL
+       WHERE id = ? AND state = 'running' AND lease_owner IS NULL AND lease_until IS NULL`,
+    )
+    .run(leaseOwner, leaseUntil.getTime(), candidate.id);
+  if ((claimed as { changes: number }).changes === 0) return null;
+  return captured ?? null;
 }
 
 export function renewLease(
@@ -88,20 +147,66 @@ export function renewLease(
   return (result as { changes: number }).changes > 0;
 }
 
-/** Terminal transition for a leased task (state machine enforced upstream). */
+/**
+ * Terminal (or waiting_input) transition for a leased task — state machine
+ * enforced HERE, not just upstream (task 1.2, remediation review #7).
+ *
+ * A run that reports an outcome AFTER the user cancelled (or the lease was
+ * reclaimed to `interrupted`) must never overwrite that terminal state:
+ * outcomes only apply from the active execution states. When the refusal
+ * happens while this runner still holds the lease, the lease is released and
+ * a `task.finish_refused` event records the refused overwrite attempt.
+ */
 export function finishLeasedTask(
   db: ForgegentDb,
   taskId: string,
   leaseOwner: string,
   state: "completed" | "failed" | "cancelled" | "interrupted" | "running" | "waiting_input",
 ): boolean {
-  const result = clientOf(db)
+  const client = clientOf(db);
+  if (state === "cancelled") {
+    // Queued-cancel path: the task may already be `cancelled` (cancelled
+    // between claim and run) — keep it, release the lease. Otherwise cancel
+    // from the active states.
+    const result = client
+      .prepare(
+        `UPDATE tasks
+         SET state = CASE WHEN state IN ('starting','running','waiting_input')
+                          THEN 'cancelled' ELSE state END,
+             lease_owner = NULL, lease_until = NULL
+         WHERE id = ? AND lease_owner = ?
+           AND (state = 'cancelled' OR state IN ('starting','running','waiting_input'))`,
+      )
+      .run(taskId, leaseOwner);
+    return (result as { changes: number }).changes > 0;
+  }
+  const result = client
     .prepare(
       `UPDATE tasks SET state = ?, lease_owner = NULL, lease_until = NULL
-       WHERE id = ? AND lease_owner = ?`,
+       WHERE id = ? AND lease_owner = ? AND state IN ('starting','running')`,
     )
     .run(state, taskId, leaseOwner);
-  return (result as { changes: number }).changes > 0;
+  if ((result as { changes: number }).changes > 0) return true;
+  // Refused. Distinguish a real anomaly (lease still held under this runner,
+  // task left in a terminal state — e.g. user cancelled mid-run) from the
+  // benign bookkeeping call after the lease was already closed.
+  const held = client
+    .prepare(`SELECT state FROM tasks WHERE id = ? AND lease_owner = ?`)
+    .get(taskId, leaseOwner) as { state: string } | undefined;
+  if (held) {
+    client
+      .prepare(
+        `UPDATE tasks SET lease_owner = NULL, lease_until = NULL
+         WHERE id = ? AND lease_owner = ?`,
+      )
+      .run(taskId, leaseOwner);
+    appendTaskEvent(db, taskId, "task.finish_refused", {
+      attempted: state,
+      kept: held.state,
+      reason: "terminal state not overwritten (state machine)",
+    });
+  }
+  return false;
 }
 
 /**

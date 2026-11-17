@@ -63,3 +63,40 @@ describe("poster tool (task 4.5 — task-execution idempotency + validation)", (
     expect(out).toMatch(/error:.*429.*quota exceeded/);
   });
 });
+
+describe("R4 task 4.5 — poster idempotency persists across instances (restarts)", () => {
+  const b64 = "iVBOR" + "A".repeat(2000);
+  function fetchStub() {
+    return async () =>
+      new Response(JSON.stringify({ data: [{ b64_json: b64 }] }), { status: 200 });
+  }
+  it("a fresh tool with the persisted record returns cached without calling the API", async () => {
+    const records = new Map<string, unknown>();
+    const persistence = {
+      get: (k: string) => records.get(k) as never,
+      set: (k: string, v: unknown) => void records.set(k, v),
+    };
+    const first = createPosterTool(
+      { baseUrl: "http://img.local/v1", apiKey: "k", model: "m" },
+      fetchStub() as typeof fetch,
+      persistence,
+    );
+    const out1 = await first.execute({ prompt: "poster", key: "task-1:gen" });
+    expect(out1).toContain("generated:");
+    expect(records.size).toBe(1);
+
+    // "Restart": a brand-new tool instance sharing the persistence layer.
+    let called = 0;
+    const second = createPosterTool(
+      { baseUrl: "http://img.local/v1", apiKey: "k", model: "m" },
+      (async (...a: unknown[]) => {
+        called += 1;
+        return (fetchStub() as (...b: unknown[]) => Promise<Response>)(...a);
+      }) as typeof fetch,
+      persistence,
+    );
+    const out2 = await second.execute({ prompt: "poster again", key: "task-1:gen" });
+    expect(out2).toContain("cached:");
+    expect(called).toBe(0);
+  });
+});

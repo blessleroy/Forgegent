@@ -113,6 +113,7 @@ export default function FilesPage() {
               <th>{zh ? "文件名" : "Filename"}</th>
               <th>{zh ? "类型" : "Type"}</th>
               <th>{zh ? "大小" : "Size"}</th>
+              <th>{zh ? "预览" : "Preview"}</th>
               <th>{zh ? "来源任务" : "From task"}</th>
               <th style={{ width: 150 }} />
             </tr>
@@ -125,6 +126,24 @@ export default function FilesPage() {
                   {f.mime}
                 </td>
                 <td style={{ fontFamily: "var(--mono)", fontSize: 13 }}>{humanSize(f.size)}</td>
+                <td>
+                  {/* Inline preview where the browser can render it (R4.1). */}
+                  {f.mime.startsWith("image/") ? (
+                    <a href={`/api/files/${f.id}/download`} target="_blank" rel="noreferrer">
+                      <img
+                        src={`/api/files/${f.id}/download`}
+                        alt={f.filename}
+                        style={{ maxWidth: 96, maxHeight: 64, objectFit: "cover", borderRadius: 6, display: "block" }}
+                      />
+                    </a>
+                  ) : /^(text\/|application\/(json|xml|pdf))/.test(f.mime) ? (
+                    <a href={`/api/files/${f.id}/download`} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
+                      {zh ? "在线预览" : "View"}
+                    </a>
+                  ) : (
+                    <span style={{ color: "var(--ink-faint)" }}>—</span>
+                  )}
+                </td>
                 <td style={{ fontSize: 13 }}>
                   {f.taskId ? (
                     <a href={`/tasks/${f.taskId}`} style={{ fontFamily: "var(--mono)", fontSize: 12 }}>

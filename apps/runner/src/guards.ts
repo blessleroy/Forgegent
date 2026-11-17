@@ -1,6 +1,7 @@
 /**
- * Execution guards (task 7.6): deadline enforcement, pre-execution cancel
- * checks, and sandbox teardown on every exit path. waiting_input time is
+ * Execution guards (task 7.6 + remediation 1.2/2.13): deadline enforcement,
+ * pre-execution cancel checks, in-flight cancel watching with best-effort
+ * abort, and sandbox teardown on every exit path. waiting_input time is
  * never counted against the deadline (the race only covers the active run).
  */
 import type { ForgegentDb } from "@forgegent/db";
@@ -13,25 +14,44 @@ export interface GuardedRunOptions {
   timeoutMs: number;
   /** Budget in tokens/cost is enforced upstream; deadline here. */
   sandbox?: SandboxManager;
-  run: () => Promise<"completed" | "failed" | "waiting_input">;
+  /** Receives the run plus the abort signal (cancel/timeout, task 1.2). */
+  run(signal: AbortSignal): Promise<"completed" | "failed" | "waiting_input">;
 }
 
+/** Interval between in-flight cancel checks (task 1.2 best-effort abort). */
+const CANCEL_WATCH_INTERVAL_MS = 2000;
+
 /**
- * Deadline race: exceeding the budget fails the task with a structured
- * reason (N6) and always tears down the sandbox.
+ * Deadline race: exceeding the budget aborts the run (best effort — the
+ * signal disposes the pi session), reports a structured failure (N6) and
+ * always tears down the sandbox.
  */
 export async function runGuarded(
   db: ForgegentDb,
   task: ClaimedTask,
   options: GuardedRunOptions,
 ): Promise<"completed" | "failed" | "waiting_input"> {
+  const controller = new AbortController();
   let timedOut = false;
+  // Watch for user/admin cancellation while the run is in flight: the state
+  // flip to `cancelled` triggers the abort signal (task 1.2 — 尽力中止).
+  const watcher = setInterval(() => {
+    const row = rawQuery<{ state: string }>(
+      db,
+      "SELECT state FROM tasks WHERE id = ?",
+      task.id,
+    )[0];
+    if (row && row.state === "cancelled") {
+      controller.abort();
+    }
+  }, CANCEL_WATCH_INTERVAL_MS);
   try {
     const result = await Promise.race([
-      options.run(),
+      options.run(controller.signal),
       new Promise<"failed">((resolve) => {
         setTimeout(() => {
           timedOut = true;
+          controller.abort();
           resolve("failed");
         }, options.timeoutMs);
       }),
@@ -43,6 +63,7 @@ export async function runGuarded(
     }
     return result;
   } finally {
+    clearInterval(watcher);
     if (options.sandbox && task.sessionId) {
       await options.sandbox.teardown(task.sessionId);
     }

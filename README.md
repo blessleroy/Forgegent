@@ -60,6 +60,29 @@ seed 会创建：演示账号 `builder@forgegent.local / demo-builder-123`、`em
 
 用演示 Employee 登录 → Hub 打开「海报设计师」→ 输入主题与风格 → 提交任务 → 在 `/tasks` 查看进度与成果 → 下载海报。**闭环完成。**
 
+## 沙盒能力（可选启用）
+
+`sandboxed` 模式的 Agent（含脚本的 Skill、需要执行命令的任务）通过独立的 Rootless Docker 容器执行不可信命令：
+
+```bash
+# 1) 预构建沙盒镜像（严禁每任务拉镜像）
+docker build --target sandbox-base -t forgegent-sandbox:1 .
+
+# 2) 让 runner 访问 Rootless Docker daemon（控制平面访问；沙盒容器自身
+#    永远不会挂载 docker socket），然后启动
+export FORGEGENT_DOCKER_SOCKET=/run/user/$(id -u)/docker.sock   # rootless sock 路径
+docker compose up -d --wait
+```
+
+沙盒拓扑：容器接入 **internal 网络**（无外网出口），唯一可达出口是 runner 进程内的**受控代理**（按 Release 出网白名单转发；生产模型 Key 仅在宿主侧注入）。容器非 root、cap-drop ALL、只读 rootfs、内存/CPU/pids 上限、任务工作区以挂载方式可见。
+
+**未启用时的降级行为**：不挂载 docker socket / daemon 不可达时，`restricted` 任务照常运行，`sandboxed` 任务以结构化原因失败（不会静默降级为宿主执行）。相关环境变量：`FORGEGENT_SANDBOX_IMAGE`、`FORGEGENT_SANDBOX_NETWORK`、`FORGEGENT_PROXY_PORT`、`FORGEGENT_SANDBOX_PROXY_URL`。
+
+## 升级注记
+
+- 本版本统一了产物存储根（runner 与 web 同用 `<dataDir>/files`）：升级前旧开发环境的 `data/runner/files` 可手动并入 `data/files` 或直接清空（预发布数据，无自动迁移脚本）。
+- 旧 `interrupted` 任务在新恢复机制下 continue 失败时将转为 `failed` 并附结构化原因。
+
 ## 常用运维
 
 | 操作 | 说明 |
@@ -67,7 +90,8 @@ seed 会创建：演示账号 `builder@forgegent.local / demo-builder-123`、`em
 | 备份/恢复 | 见 [`docs/backup-restore.md`](docs/backup-restore.md)（AT-19 一致性快照） |
 | 并发上限 | `FORGEGENT_MAX_CONCURRENCY`（默认 5） |
 | 数据目录 | `FORGEGENT_DATA_DIR`（默认 `data/`，卷挂载 `/data`） |
-| 性能基线 | `test-results/performance-baseline.md`（5 并发 + P50/P95） |
+| 部署冒烟 | `bash scripts/smoke-compose.sh`（AT-20 闭环，内置 mock 模型端点，D47） |
+| 性能实测 | `node scripts/perf-measure.mjs`（N10 接口 P50/P95；基线见 `test-results/performance-baseline.md`） |
 
 ## 开发
 

@@ -70,6 +70,8 @@ export interface TaskRecord {
   mode: string;
   sessionId: string | null;
   inputSummary: string | null;
+  /** Queued follow-ups waiting for the next execution round (2.12). */
+  pendingFollowup: string | null;
 }
 
 type Row = typeof tasks.$inferSelect;
@@ -84,6 +86,7 @@ function toRecord(row: Row): TaskRecord {
     mode: row.mode,
     sessionId: row.sessionId,
     inputSummary: row.inputSummary,
+    pendingFollowup: row.pendingFollowup,
   };
 }
 
@@ -241,8 +244,15 @@ export async function continueTask(
   // for the runner to claim again (session lock keeps exclusivity).
   const next: TaskState = state === "waiting_input" ? "running" : "pending";
   rawExec(db, "UPDATE tasks SET state = ? WHERE id = ? AND state = ?", next, params.taskId, state);
+  // Remediation 2.12 (D35/D40): queue the message for the runner — the next
+  // round composes it with the original input and the employee's reply
+  // actually reaches the model (AT-13 real semantics).
+  const message = params.message.slice(0, 2000);
+  const existing = (await getRow(db, params.taskId)).pendingFollowup;
+  const merged = existing ? `${existing}\n---\n${message}` : message;
+  rawExec(db, "UPDATE tasks SET pending_followup = ? WHERE id = ?", merged, params.taskId);
   appendTaskEvent(db, params.taskId, "task.continued", {
-    message: params.message.slice(0, 2000),
+    message,
   });
   appendTaskEvent(
     db,

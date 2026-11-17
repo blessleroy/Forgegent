@@ -4,7 +4,7 @@ import { audit, files, rawQuery } from "@forgegent/db";
 import { FileStore } from "@forgegent/storage";
 import { join } from "node:path";
 import { guardRequest } from "@/lib/guard";
-import { dataDir, ensureBootstrap, getAuth, getDb } from "@/lib/server";
+import { dataDir, ensureBootstrap, getAuth, getDb, uploadPolicy } from "@/lib/server";
 
 /** GET /api/files — the caller's personal file list. */
 export async function GET(request: Request) {
@@ -45,10 +45,14 @@ export async function POST(request: Request) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "file required" }, { status: 400 });
   }
-  if (file.size > 50 * 1024 * 1024) {
-    return NextResponse.json({ error: "文件超过 50MB 上限" }, { status: 400 });
+  const policy = uploadPolicy();
+  if (file.size > policy.maxFileBytes) {
+    return NextResponse.json(
+      { error: `文件超过 ${Math.round(policy.maxFileBytes / 1024 / 1024)}MB 上限` },
+      { status: 400 },
+    );
   }
-  const store = new FileStore(join(dataDir(), "files"), getDb());
+  const store = new FileStore(join(dataDir(), "files"), getDb(), uploadPolicy());
   try {
     const saved = await store.put({
       ownerId: guard.context.userId,
@@ -86,7 +90,7 @@ export async function DELETE(request: Request) {
   }
   const id = new URL(request.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-  const store = new FileStore(join(dataDir(), "files"), getDb());
+  const store = new FileStore(join(dataDir(), "files"), getDb(), uploadPolicy());
   try {
     await store.softDelete(guard.context.userId, id);
     return NextResponse.json({ ok: true });

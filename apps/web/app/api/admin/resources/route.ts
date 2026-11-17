@@ -41,6 +41,9 @@ export async function POST(request: Request) {
     baseUrl?: string;
     model?: string;
     apiKey?: string;
+    /** D44: optional per-M-token pricing in cents (estimated_cost/budget). */
+    priceInputCentsPerM?: number;
+    priceOutputCentsPerM?: number;
     name?: string;
     endpoint?: string;
     method?: "GET" | "POST";
@@ -75,15 +78,25 @@ export async function POST(request: Request) {
         db,
         "DELETE FROM resources WHERE kind = 'model_endpoint'",
       );
+      // D44: optional per-M-token pricing (cents) drives estimated_cost and
+      // the maxCostCents budget; unset → cost 0 and the fee budget no-ops
+      // (explicitly noted in run events).
+      const config: Record<string, unknown> = {
+        baseUrl: body.baseUrl,
+        model: body.model,
+        apiKeyEnv: "FORGEGENT_MODEL_API_KEY",
+      };
+      if (body.priceInputCentsPerM !== undefined && body.priceInputCentsPerM !== null) {
+        config.priceInputCentsPerM = Number(body.priceInputCentsPerM);
+      }
+      if (body.priceOutputCentsPerM !== undefined && body.priceOutputCentsPerM !== null) {
+        config.priceOutputCentsPerM = Number(body.priceOutputCentsPerM);
+      }
       rawExec(
         db,
         "INSERT INTO resources (id, kind, name, config) VALUES (?, 'model_endpoint', 'default', ?)",
         crypto.randomUUID(),
-        JSON.stringify({
-          baseUrl: body.baseUrl,
-          model: body.model,
-          apiKeyEnv: "FORGEGENT_MODEL_API_KEY",
-        }),
+        JSON.stringify(config),
       );
       return NextResponse.json({ ok: true, modelCount: probe.modelCount });
     }

@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 import { audit } from "@forgegent/db";
-import { submitSkill } from "@forgegent/skills";
+import { submitSkill, SkillStore } from "@forgegent/skills";
+import { dataDir, ensureBootstrap, getAuth, getDb } from "@/lib/server";
 import { guardRequest } from "@/lib/guard";
-import { ensureBootstrap, getAuth, getDb } from "@/lib/server";
+import { join } from "node:path";
 
-/** POST /api/skills/submissions — any signed-in user may submit (FR-04.2). */
+const skillStore = new SkillStore(join(dataDir(), "skills"));
+
+/**
+ * POST /api/skills/submissions — any signed-in user may submit (FR-04.2).
+ * The package (SKILL.md + optional auxiliary files) is PERSISTED: what the
+ * admin approves is exactly what was submitted (remediation 2.5).
+ */
 export async function POST(request: Request) {
   await ensureBootstrap();
   const guard = await guardRequest(
@@ -19,6 +26,8 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as {
     name?: string;
     markdown?: string;
+    /** Optional auxiliary files (relative path → content). */
+    files?: Record<string, string>;
   } | null;
   if (!body?.name || !body.markdown?.trim()) {
     return NextResponse.json(
@@ -26,9 +35,14 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const { submissionId } = submitSkill(getDb(), {
+  for (const path of Object.keys(body.files ?? {})) {
+    if (path.includes("..") || path.startsWith("/")) {
+      return NextResponse.json({ error: `unsafe file path: ${path}` }, { status: 400 });
+    }
+  }
+  const { submissionId } = submitSkill(getDb(), skillStore, {
     submitterId: guard.context.userId,
-    pkg: { name: body.name, markdown: body.markdown },
+    pkg: { name: body.name, markdown: body.markdown, files: body.files },
   });
   await audit(getDb(), {
     actorId: guard.context.userId,

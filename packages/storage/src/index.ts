@@ -22,6 +22,12 @@ import type { ForgegentDb } from "@forgegent/db";
 export interface QuotaConfig {
   maxFileBytes: number;
   maxUserBytes: number;
+  /**
+   * R4.10: extension allowlist. Undefined → the built-in deny-list applies
+   * (executables/scripts rejected, common doc/image/archive types pass).
+   * An explicit list switches to strict allow-mode.
+   */
+  allowedExtensions?: string[];
 }
 
 export const DEFAULT_QUOTA: QuotaConfig = {
@@ -29,13 +35,31 @@ export const DEFAULT_QUOTA: QuotaConfig = {
   maxUserBytes: 2 * 1024 * 1024 * 1024, // 2 GB per user
 };
 
+/**
+ * Executable/script types rejected by default (FR-07.6: 类型白名单 —
+ * everything else, i.e. common documents/images/archives/text, passes).
+ */
+export const DEFAULT_DENIED_EXTENSIONS = new Set([
+  "exe", "bat", "cmd", "com", "msi", "scr", "vbs", "ps1",
+  "sh", "bash", "zsh", "fish",
+  "py", "pyw", "js", "mjs", "cjs", "ts", "rb", "pl", "php", "lua",
+  "jar", "dll", "so", "dylib", "bin", "class", "wasm",
+]);
+
+export function extensionOf(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  if (dot <= 0 || dot === filename.length - 1) return "";
+  return filename.slice(dot + 1).toLowerCase();
+}
+
 export type StorageError =
   | { code: "QUOTA_FILE_TOO_LARGE"; maxFileBytes: number }
   | { code: "QUOTA_USER_EXCEEDED"; maxUserBytes: number }
   | { code: "NOT_FOUND" }
   | { code: "FORBIDDEN" }
   | { code: "REFERENCED_BY_LIVE_TASK"; taskId: string }
-  | { code: "INVALID_NAME" };
+  | { code: "INVALID_NAME" }
+  | { code: "TYPE_NOT_ALLOWED"; extension: string };
 
 export class FileStoreError extends Error {
   constructor(public readonly detail: StorageError) {
@@ -96,6 +120,16 @@ export class FileStore {
     const { ownerId, filename, mime, bytes } = params;
     if (filename.includes("/") || filename.includes("\0") || filename === "") {
       throw new FileStoreError({ code: "INVALID_NAME" });
+    }
+    // R4.10: type whitelist — explicit allow-mode when configured, otherwise
+    // the default executable/script deny-list (spec: 共享默认非可执行).
+    const ext = extensionOf(filename);
+    if (this.quota.allowedExtensions) {
+      if (this.quota.allowedExtensions.length > 0 && !this.quota.allowedExtensions.includes(ext)) {
+        throw new FileStoreError({ code: "TYPE_NOT_ALLOWED", extension: ext });
+      }
+    } else if (ext && DEFAULT_DENIED_EXTENSIONS.has(ext)) {
+      throw new FileStoreError({ code: "TYPE_NOT_ALLOWED", extension: ext });
     }
     if (bytes.byteLength > this.quota.maxFileBytes) {
       throw new FileStoreError({

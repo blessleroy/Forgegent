@@ -1,17 +1,12 @@
 import { NextResponse } from "next/server";
-import { HeuristicBuilderAgent } from "@forgegent/studio";
-import { continueConversation, startConversation } from "@forgegent/studio";
+import { resolveBuilderBackend, continueConversation, startConversation } from "@forgegent/studio";
 import { rawQuery } from "@forgegent/db";
 import { guardRequest } from "@/lib/guard";
 import { ensureBootstrap, getAuth, getDb } from "@/lib/server";
 
-/** Backend selection (design D11): LLM when an endpoint is configured,
- *  deterministic heuristic otherwise (offline/tests). */
-function builderAgent() {
-  return new HeuristicBuilderAgent();
-}
-
-/** GET /api/studio/drafts — the builder's drafts + conversations. */
+/** GET /api/studio/drafts — the builder's drafts + active backend mode.
+ *  `builderBackend: "heuristic"` means 离线演示模式 — the Studio UI must
+ *  label it (D30: the heuristic fallback never passes itself off as LLM). */
 export async function GET(request: Request) {
   await ensureBootstrap();
   const guard = await guardRequest(
@@ -27,12 +22,16 @@ export async function GET(request: Request) {
     getDb(),
     `SELECT d.id, d.state, a.slug, json_extract(d.draft_payload, '$.name') AS name,
             json_extract(d.draft_payload, '$.version') AS version,
+            d.review_note AS reviewNote,
             d.auto_test_result AS autoTestResult
      FROM agent_drafts d JOIN agents a ON a.id = d.agent_id
      WHERE d.builder_id = ? ORDER BY d.created_at DESC`,
     guard.context.userId,
   );
-  return NextResponse.json({ drafts });
+  return NextResponse.json({
+    drafts,
+    builderBackend: resolveBuilderBackend(getDb()).kind,
+  });
 }
 
 /** POST /api/studio/drafts — converse: start a draft or continue editing. */
@@ -55,7 +54,10 @@ export async function POST(request: Request) {
   if (!body?.message?.trim()) {
     return NextResponse.json({ error: "message is required" }, { status: 400 });
   }
-  const backend = builderAgent();
+  // Task 2.1 (D30/D34/D42): real LLM backend when the admin-configured
+  // endpoint is usable; deterministic heuristic otherwise. LLM failures
+  // surface as errors — never a silent heuristic swap.
+  const backend = resolveBuilderBackend(getDb());
   try {
     if (body.draftId) {
       const result = await continueConversation(getDb(), backend, {
@@ -63,7 +65,7 @@ export async function POST(request: Request) {
         builderId: guard.context.userId,
         instruction: body.message,
       });
-      return NextResponse.json(result);
+      return NextResponse.json({ ...result, builderBackend: backend.kind });
     }
     if (!body.slug) {
       return NextResponse.json(
@@ -76,7 +78,10 @@ export async function POST(request: Request) {
       slug: body.slug,
       brief: body.message,
     });
-    return NextResponse.json(result, { status: 201 });
+    return NextResponse.json(
+      { ...result, builderBackend: backend.kind },
+      { status: 201 },
+    );
   } catch (error) {
     const code = (error as { code?: string }).code ?? "ERROR";
     return NextResponse.json(

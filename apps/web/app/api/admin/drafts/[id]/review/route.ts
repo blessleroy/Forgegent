@@ -1,8 +1,16 @@
 import { NextResponse } from "next/server";
 import { audit } from "@forgegent/db";
 import { reviewDraft } from "@forgegent/registry";
+import { SkillStore } from "@forgegent/skills";
 import { guardRequest } from "@/lib/guard";
-import { ensureBootstrap, getAuth, getDb, getReleaseStore } from "@/lib/server";
+import {
+  dataDir,
+  ensureBootstrap,
+  getAuth,
+  getDb,
+  getReleaseStore,
+} from "@/lib/server";
+import { join } from "node:path";
 
 /** POST /api/admin/drafts/[id]/review — approve (publish) or reject. */
 export async function POST(
@@ -36,6 +44,9 @@ export async function POST(
       adminId: guard.context.userId,
       decision: body.decision,
       note: body.note,
+      // D46: connected review — embedded generated skills are published as
+      // part of this approval and pinned into the immutable snapshot.
+      skillStore: new SkillStore(join(dataDir(), "skills")),
     });
     await audit(getDb(), {
       actorId: guard.context.userId,

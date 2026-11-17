@@ -19,7 +19,9 @@ import {
   userDepartments,
 } from "@forgegent/db";
 import type { Role } from "@forgegent/shared";
+import { isScriptedPackage, publishSkillPackage, type SkillStore } from "@forgegent/skills";
 import { validateDraftPayload, type DraftPayload } from "./payload.js";
+import { declaredHttpToolIds } from "./resources.js";
 import type { ReleaseStore } from "./store.js";
 
 export type RegistryErrorCode =
@@ -76,6 +78,96 @@ async function slugFor(db: ForgegentDb, agentId: string): Promise<string> {
   return agent.slug;
 }
 
+/**
+ * D37 reference validation (remediation 2.3): references with REAL effect
+ * must resolve to a real, authorized object at SAVE time; failures refuse
+ * the save and carry usable lists so the builder (or the LLM retry) can fix
+ * them — nothing is silently dropped.
+ *
+ * Strict (external effect / data access):
+ * - skillRefs: published version AND a skill_bindings grant for this builder
+ *   (embeddedSkills are different: generated drafts ride the agent review,
+ *   D46 — no binding needed).
+ * - toolRefs `http.*`: must be declared resources.
+ * - resourceRefs: must exist as resource names.
+ *
+ * Advisory only (capability references per PRD §6 — no external effect):
+ * - other toolRefs ids: format check; an id without an executor wired
+ *   grants no capability (the gateway only passes declared tools).
+ * - modelRef: opaque capability string; resolved at execution time with
+ *   fallback to the default endpoint (an unresolvable ref is surfaced by
+ *   the submit gate, not refused here).
+ */
+export function validateDraftReferences(
+  db: ForgegentDb,
+  builderId: string,
+  payload: DraftPayload,
+): void {
+  const errors: string[] = [];
+
+  const authorizedSkills = rawQuery<
+    { slug: string; version: string; is_scripted: number }
+  >(
+    db,
+    `SELECT s.slug, sv.version, sv.is_scripted FROM skill_versions sv
+     JOIN skills s ON s.id = sv.skill_id
+     JOIN skill_bindings b ON b.skill_id = s.id AND b.builder_id = ?
+     WHERE sv.status = 'published'`,
+    builderId,
+  );
+  const authorized = new Map(
+    authorizedSkills.map((s) => [`${s.slug}@${s.version}`, s]),
+  );
+  for (const ref of payload.skillRefs ?? []) {
+    const entry = authorized.get(`${ref.id}@${ref.version}`);
+    if (!entry) {
+      errors.push(
+        `skill ${ref.id}@${ref.version} 未发布或该 Builder 无绑定授权`,
+      );
+    } else if (entry.is_scripted && payload.runtime.mode !== "sandboxed") {
+      // FR-04.5: scripted skills must run sandboxed.
+      errors.push(
+        `skill ${ref.id}@${ref.version} 含脚本 — 该 Agent 必须以 sandboxed 模式运行（FR-04.5）`,
+      );
+    }
+  }
+
+  const httpIds = new Set(declaredHttpToolIds(db));
+  for (const tool of payload.toolRefs ?? []) {
+    if (!/^[a-z][a-z0-9.-]*$/.test(tool)) {
+      errors.push(`tool "${tool}" 不是合法的工具 ID`);
+    } else if (tool.startsWith("http.") && !httpIds.has(tool)) {
+      errors.push(`http 工具 "${tool}" 未由管理员声明`);
+    }
+  }
+
+  const resourceNames = new Set(
+    rawQuery<{ name: string }>(db, "SELECT name FROM resources").map((r) => r.name),
+  );
+  for (const ref of payload.resourceRefs ?? []) {
+    if (!resourceNames.has(ref)) {
+      errors.push(`资源 "${ref}" 不存在`);
+    }
+  }
+
+  if (errors.length > 0) {
+    const hints: string[] = [];
+    if (authorizedSkills.length > 0) {
+      hints.push(`可绑定 Skill：${[...authorized.keys()].join("、")}`);
+    }
+    hints.push(
+      `平台内置工具：image.generate、document.export、resources.search；已声明 http 工具：${httpIds.size ? [...httpIds].join("、") : "（无）"}`,
+    );
+    if (resourceNames.size > 0) {
+      hints.push(`可用资源：${[...resourceNames].slice(0, 20).join("、")}`);
+    }
+    throw new RegistryError(
+      "VALIDATION",
+      `${errors.join("；")}。${hints.join("。")}`,
+    );
+  }
+}
+
 /** Task 3.1: create a draft; the agents row is created with the first draft
  *  and slug uniqueness is checked immediately (D20). */
 export async function createDraft(
@@ -96,29 +188,8 @@ export async function createDraft(
   if (!check.ok) {
     throw new RegistryError("VALIDATION", check.errors.join("; "));
   }
-  // Skill references must be currently published + bound-authorized for
-  // this builder (skill-registry spec: bind only from the authorized list).
-  for (const ref of check.value.skillRefs ?? []) {
-    const published = rawQuery<{ status: string }>(
-      db,
-      `SELECT sv.status FROM skill_versions sv JOIN skills s ON s.id = sv.skill_id
-       WHERE s.slug = ? AND sv.version = ?`,
-      ref.id,
-      ref.version,
-    )[0];
-    if (!published) {
-      throw new RegistryError(
-        "VALIDATION",
-        `skill ${ref.id}@${ref.version} not found — bind from published skills only`,
-      );
-    }
-    if (published.status !== "published") {
-      throw new RegistryError(
-        "VALIDATION",
-        `skill ${ref.id}@${ref.version} is ${published.status} — AT-09`,
-      );
-    }
-  }
+  // D37: references must resolve to real, authorized objects at save time.
+  validateDraftReferences(db, params.builderId, check.value);
   const existing = await db
     .select({ id: agents.id })
     .from(agents)
@@ -185,6 +256,8 @@ export async function updateDraft(
   if (!check.ok) {
     throw new RegistryError("VALIDATION", check.errors.join("; "));
   }
+  // D37: reference validation applies to edits exactly like creation.
+  validateDraftReferences(db, params.builderId, check.value);
   await db
     .update(agentDrafts)
     .set({ draftPayload: check.value })
@@ -288,8 +361,9 @@ export interface PublishResult {
   checksum: string;
 }
 
-/** Admin review (task 3.3): approve -> immutable release; reject -> editing
- *  with the review note preserved (D20). */
+/** Admin review (task 3.3 + remediation 2.4/D46): approve -> immutable
+ *  release (embedded generated skills are 连带审核-published and pinned into
+ *  skillRefs); reject -> editing with the review note preserved (D20). */
 export async function reviewDraft(
   db: ForgegentDb,
   store: ReleaseStore,
@@ -298,6 +372,8 @@ export async function reviewDraft(
     adminId: string;
     decision: "approve" | "reject";
     note?: string;
+    /** Required when the payload carries embeddedSkills (D46). */
+    skillStore?: SkillStore;
   },
 ): Promise<PublishResult | DraftRecord> {
   const { row, slug } = await requireDraft(db, params.draftId);
@@ -337,13 +413,54 @@ export async function reviewDraft(
       `version ${payload.version} already released for this agent`,
     );
   }
+
+  // ---- D46 连带审核: embedded generated skills are published as part of
+  // THIS approval (submitter=builder, reviewer=admin, hash-pinned) and the
+  // payload's skillRefs are backfilled BEFORE the immutable snapshot, so the
+  // release pins exactly what was reviewed.
+  const skillRefs = [...(payload.skillRefs ?? [])];
+  for (const emb of payload.embeddedSkills ?? []) {
+    if (
+      isScriptedPackage({ name: emb.id, markdown: emb.markdown }) &&
+      payload.runtime.mode !== "sandboxed"
+    ) {
+      throw new RegistryError(
+        "VALIDATION",
+        `内嵌 Skill「${emb.id}」含脚本 — 该 Agent 必须以 sandboxed 模式运行（FR-04.5）`,
+      );
+    }
+    if (!params.skillStore) {
+      throw new RegistryError(
+        "VALIDATION",
+        "草稿包含内嵌 Skill，需要 skillStore 才能连带发布（D46）",
+      );
+    }
+    const publishedSkill = publishSkillPackage(db, params.skillStore, {
+      slug: emb.id,
+      version: payload.version,
+      pkg: { name: emb.name, markdown: emb.markdown },
+      submitterId: row.builderId,
+      reviewerId: params.adminId,
+    });
+    if (
+      !skillRefs.some((r) => r.id === emb.id && r.version === payload.version)
+    ) {
+      skillRefs.push({
+        id: emb.id,
+        version: payload.version,
+        sha256: publishedSkill.checksum,
+      });
+    }
+  }
+  const publishPayload: DraftPayload = { ...payload, skillRefs };
+
   let snapshot;
   try {
     snapshot = store.writeSnapshot({
       releaseId,
       agentId: row.agentId,
       version: payload.version,
-      payload,
+      payload: publishPayload,
       publishedBy: params.adminId,
     });
   } catch (error) {
@@ -359,7 +476,7 @@ export async function reviewDraft(
   });
   // Tool whitelist lands in tool_policies — the runtime source the Tool
   // Gateway checks against (permission-enforcement spec, task 5.2).
-  for (const toolId of payload.toolRefs ?? []) {
+  for (const toolId of publishPayload.toolRefs ?? []) {
     await db.insert(toolPolicies).values({
       id: randomUUID(),
       releaseId,
@@ -527,7 +644,15 @@ export async function listAgentsForUser(
   db: ForgegentDb,
   params: { userId: string; roles: Role[] },
 ): Promise<
-  { id: string; slug: string; name: string; description: string; activeReleaseId: string | null }[]
+  {
+    id: string;
+    slug: string;
+    name: string;
+    description: string;
+    activeReleaseId: string | null;
+    /** Hub category (admin-assigned, N9); null → 未分类. */
+    category: string | null;
+  }[]
 > {
   const rows = await db
     .select({
@@ -550,7 +675,23 @@ export async function listAgentsForUser(
       visible.push(row);
     }
   }
-  return visible.map(({ listingState: _listingState, ...rest }) => rest);
+  const categoryNames = new Map(
+    rawQuery<{ id: string; name: string }>(db, "SELECT id, name FROM categories").map(
+      (c) => [c.id, c.name],
+    ),
+  );
+  const categoryOf = (agentId: string): string | null => {
+    const row = rawQuery<{ category_id: string | null }>(
+      db,
+      "SELECT category_id FROM agents WHERE id = ?",
+      agentId,
+    )[0];
+    return row?.category_id ? categoryNames.get(row.category_id) ?? null : null;
+  };
+  return visible.map(({ listingState: _listingState, ...rest }) => ({
+    ...rest,
+    category: categoryOf(rest.id),
+  }));
 }
 
 /** Copy any published version into a fresh draft owned by the copier (D19). */

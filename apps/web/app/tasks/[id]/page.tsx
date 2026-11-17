@@ -12,6 +12,13 @@ interface TaskEvent {
   safePayload: Record<string, unknown> | null;
 }
 
+interface TaskFile {
+  id: string;
+  filename: string;
+  mime: string;
+  size: number;
+}
+
 interface TaskDetail {
   id: string;
   state: string;
@@ -20,13 +27,22 @@ interface TaskDetail {
 
 function payloadText(payload: Record<string, unknown> | null): string {
   if (!payload) return "";
-  return String(payload.message ?? payload.reason ?? payload.text ?? payload.note ?? "");
+  return String(
+    payload.message ?? payload.reason ?? payload.text ?? payload.note ?? payload.summary ?? "",
+  );
+}
+
+function formatSize(bytes: number): string {
+  if (bytes > 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes > 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
 }
 
 export default function TaskDetailPage() {
   const params = useParams<{ id: string }>();
   const { t, locale } = useLocale();
   const [task, setTask] = useState<TaskDetail | null>(null);
+  const [outputFiles, setOutputFiles] = useState<TaskFile[]>([]);
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -37,6 +53,7 @@ export default function TaskDetailPage() {
     if (res.ok) {
       const data = await res.json();
       setTask(data.task);
+      setOutputFiles(data.outputFiles ?? []);
     }
     const evRes = await fetch(`/api/tasks/${params.id}/events?after=${lastSeqRef.current}`);
     if (evRes.ok) {
@@ -115,7 +132,10 @@ export default function TaskDetailPage() {
           <div className="tl-item" style={{ color: "var(--ink-faint)" }}>…</div>
         ) : (
           events.map((event) => {
-            const hot = event.eventType === "task.continued" || event.eventType === "run.failed";
+            const hot =
+              event.eventType === "task.continued" ||
+              event.eventType === "run.failed" ||
+              event.eventType === "agent.request_input";
             return (
               <div key={event.seq} className={`tl-item${hot ? " hot" : ""}`}>
                 <span className="tl-type">{event.eventType}</span>{" "}
@@ -125,6 +145,46 @@ export default function TaskDetailPage() {
           })
         )}
       </div>
+
+      {/* Remediation 2.14: 成果区 — produced artifacts with download/preview. */}
+      {outputFiles.length > 0 ? (
+        <>
+          <div className="h2" style={{ marginTop: 24 }}>
+            {locale === "zh" ? "任务成果" : "Artifacts"}
+          </div>
+          <div className="card" style={{ padding: 12 }}>
+            {outputFiles.map((file) => (
+              <div
+                key={file.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "8px 4px",
+                  borderBottom: "1px solid #f0f0f0",
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{file.filename}</div>
+                  <div style={{ fontSize: 12, color: "var(--ink-faint)" }}>
+                    {file.mime} · {formatSize(file.size)}
+                  </div>
+                </div>
+                {file.mime.startsWith("image/") ? (
+                  <img
+                    src={`/api/files/${file.id}/download`}
+                    alt={file.filename}
+                    style={{ maxWidth: 120, maxHeight: 90, objectFit: "cover", borderRadius: 6 }}
+                  />
+                ) : null}
+                <a className="btn btn-sm" href={`/api/files/${file.id}/download`}>
+                  {locale === "zh" ? "下载" : "Download"}
+                </a>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
 
       {canInteract ? (
         <div style={{ marginTop: 20, display: "flex", gap: 8, maxWidth: 640 }}>

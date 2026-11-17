@@ -6,7 +6,7 @@
  * Denials are written to audit_logs with actor/action/reason and no secrets.
  */
 import { can, effectiveAbilities, type Ability } from "@forgegent/shared";
-import { audit, rolesForUser, isUserActive } from "@forgegent/db";
+import { audit, rolesForUser, isUserActive, rawQuery } from "@forgegent/db";
 import type { ForgegentDb } from "@forgegent/db";
 import type { Auth } from "./auth";
 
@@ -53,6 +53,25 @@ export async function guardRequest(
       reason: "user-disabled",
     });
     return { ok: false, status: 401, reason: "user-disabled" };
+  }
+
+  // Task 1.4 (D14 server-side enforcement): a user flagged
+  // must_change_password may not use ANY guarded API until the change is
+  // done — only the change-password route (outside this guard) stays
+  // reachable. The login-page redirect is UX, this is the enforcement.
+  const forced = rawQuery<{ must_change_password: number }>(
+    db,
+    "SELECT must_change_password FROM users WHERE id = ?",
+    user.id,
+  )[0];
+  if (forced?.must_change_password) {
+    await audit(db, {
+      actorId: user.id,
+      action: "auth.session",
+      decision: "deny",
+      reason: "password-change-required",
+    });
+    return { ok: false, status: 403, reason: "password-change-required" };
   }
 
   const roleNames = (await rolesForUser(db, user.id)) as Ability[] extends never

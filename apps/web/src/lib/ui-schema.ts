@@ -6,7 +6,7 @@
 export interface SchemaField {
   name: string;
   label: string;
-  type: "text" | "textarea" | "number" | "select";
+  type: "text" | "textarea" | "number" | "select" | "file";
   required?: boolean;
   options?: string[];
   placeholder?: string;
@@ -65,7 +65,9 @@ export function parseUiSchema(
   return { ok: true, schema: raw as UiSchema };
 }
 
-/** Validate user input against a form schema (shared by client + server). */
+/** Validate user input against a form schema (shared by client + server).
+ *  `file` fields carry the uploaded file id (string) — required files must
+ *  have one (remediation 2.14). */
 export function validateFormInput(
   schema: FormResultSchema,
   values: Record<string, unknown>,

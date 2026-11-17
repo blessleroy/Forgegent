@@ -34,6 +34,18 @@ beforeAll(async () => {
   ] as const) {
     await db.insert(users).values({ id, email }).onConflictDoNothing();
   }
+  // D37: `http.*` tool references require a prior admin declaration.
+  rawExec(
+    db,
+    "INSERT INTO resources (id, kind, name, config) VALUES ('gw-http-fetch', 'http_tool', 'fetch', ?)",
+    JSON.stringify({
+      name: "fetch",
+      endpoint: "https://api.gw.local/data",
+      method: "GET",
+      paramSchema: { type: "object", properties: {} },
+      authType: "none",
+    }),
+  );
 });
 
 afterAll(() => {

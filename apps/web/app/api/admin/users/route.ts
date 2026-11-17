@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { audit, rawExec, rawQuery } from "@forgegent/db";
 import { guardRequest } from "@/lib/guard";
+import { revokeAllUserSessions } from "@/lib/sessions";
 import { ensureBootstrap, getAuth, getDb } from "@/lib/server";
 
 const VALID_ROLES = new Set(["admin", "builder", "employee"]);
@@ -135,7 +136,11 @@ export async function POST(request: Request) {
           { status: 400 },
         );
       }
-      // Reset via a fresh credential + forced change on next login.
+      // Task 1.3 (D43): atomic credential replacement — the new hash is
+      // built via a scratch signup (same scrypt params as better-auth) and
+      // swapped in with a single UPDATE, so the old credential stays valid
+      // until the new one lands. The previous delete-then-signUpEmail flow
+      // always failed with USER_ALREADY_EXISTS and locked the account out.
       const auth = getAuth();
       const target = rawQuery<{ email: string }>(
         db,
@@ -143,20 +148,58 @@ export async function POST(request: Request) {
         body.userId,
       )[0];
       if (!target) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-      rawExec(
-        db,
-        "DELETE FROM accounts WHERE user_id = ? AND provider_id = 'credential'",
-        body.userId,
-      );
-      await auth.api.signUpEmail({
-        body: { email: target.email, password: body.password, name: target.email },
+      const tempEmail = `reset-${crypto.randomUUID()}@invalid.local`;
+      const temp = await auth.api.signUpEmail({
+        body: { email: tempEmail, password: body.password, name: tempEmail },
         asResponse: false,
       });
+      const tempHash = rawQuery<{ password: string | null }>(
+        db,
+        "SELECT password FROM accounts WHERE user_id = ? AND provider_id = 'credential'",
+        temp.user.id,
+      )[0]?.password;
+      // Scratch rows removed either way (signUpEmail also opened a session).
+      revokeAllUserSessions(db, temp.user.id);
+      rawExec(db, "DELETE FROM accounts WHERE user_id = ?", temp.user.id);
+      rawExec(db, "DELETE FROM users WHERE id = ?", temp.user.id);
+      if (!tempHash) {
+        return NextResponse.json(
+          { error: "password hash unavailable" },
+          { status: 500 },
+        );
+      }
+      const existingAccount = rawQuery<{ id: string }>(
+        db,
+        "SELECT id FROM accounts WHERE user_id = ? AND provider_id = 'credential'",
+        body.userId,
+      )[0];
+      if (existingAccount) {
+        rawExec(
+          db,
+          "UPDATE accounts SET password = ?, updated_at = ? WHERE id = ?",
+          tempHash,
+          Date.now(),
+          existingAccount.id,
+        );
+      } else {
+        rawExec(
+          db,
+          "INSERT INTO accounts (id, user_id, account_id, provider_id, password, created_at, updated_at) VALUES (?, ?, ?, 'credential', ?, ?, ?)",
+          crypto.randomUUID(),
+          body.userId,
+          body.userId,
+          tempHash,
+          Date.now(),
+          Date.now(),
+        );
+      }
       rawExec(
         db,
         "UPDATE users SET must_change_password = 1 WHERE id = ?",
         body.userId,
       );
+      // D43: a reset invalidates every existing session of the target user.
+      revokeAllUserSessions(db, body.userId);
       await audit(db, {
         actorId: guard.context.userId,
         action: "user.reset-password",
@@ -175,6 +218,10 @@ export async function POST(request: Request) {
         );
       }
       rawExec(db, "UPDATE users SET status = ? WHERE id = ?", body.status, body.userId);
+      // Task 1.5 (D22): disabling a user immediately ends their sessions.
+      if (body.status === "disabled") {
+        revokeAllUserSessions(db, body.userId);
+      }
       await audit(db, {
         actorId: guard.context.userId,
         action: `user.${body.status}`,

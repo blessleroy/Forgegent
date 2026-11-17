@@ -201,6 +201,10 @@ export interface GateResult {
   passed: boolean;
   failures: string[];
   summary: string;
+  /** Remediation 4.2: online submissions launch a REAL isolated test run. */
+  asyncTestTaskId?: string;
+  /** True when no usable model endpoint — tests not executed (D41). */
+  offline?: boolean;
 }
 
 /**
@@ -268,10 +272,21 @@ export function readGateResult(db: ForgegentDb, draftId: string): GateResult | n
     : null;
 }
 
-/** Submit with the gate (registry submit + gate attach). */
+/** Submit with the gate (registry submit + gate attach).
+ *  Remediation 4.2: with a usable model endpoint the declared test cases
+ *  ALSO run for real as an isolated origin=test task (D41/N5); offline the
+ *  gate is labelled 未运行（离线演示模式）. Failures never block submission —
+ *  results attach to the review materials. */
 export async function submitWithGate(
   db: ForgegentDb,
-  params: { draftId: string; builderId: string },
+  params: {
+    draftId: string;
+    builderId: string;
+    /** ReleaseStore for materialising the isolated test snapshot. */
+    store?: import("@forgegent/registry").ReleaseStore;
+    /** Backend mode drives the online/offline branch (D30/D41). */
+    backendMode: "llm" | "heuristic";
+  },
 ) {
   const payloadRow = rawQuery<{ draft_payload: string }>(
     db,
@@ -280,6 +295,25 @@ export async function submitWithGate(
   )[0];
   if (!payloadRow) throw new Error("draft payload missing");
   const gate = runDraftGate(JSON.parse(payloadRow.draft_payload));
+  if (params.backendMode === "llm" && params.store) {
+    try {
+      const cases = (
+        JSON.parse(payloadRow.draft_payload) as { tests?: { cases?: string[] } }
+      ).tests?.cases ?? [];
+      const { taskId } = await createDraftTestRun(db, params.store, {
+        draftId: params.draftId,
+        builderId: params.builderId,
+        inputSummary: `提审自动测试：\n${cases.slice(0, 5).map((c) => `- ${c}`).join("\n")}`,
+      });
+      gate.asyncTestTaskId = taskId;
+      gate.summary += `；已发起隔离测试任务（taskId=${taskId}，结果可在审核界面查看）`;
+    } catch (error) {
+      gate.failures.push(`隔离测试启动失败：${String((error as Error).message).slice(0, 120)}`);
+    }
+  } else {
+    gate.offline = true;
+    gate.summary += "；未运行（离线演示模式 — 未配置可用模型端点）";
+  }
   attachGateResult(db, params.draftId, gate);
   const submitted = await registrySubmit(db, params);
   return { submitted, gate };

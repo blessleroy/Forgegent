@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server";
-import { rawQuery } from "@forgegent/db";
 import { FileStore } from "@forgegent/storage";
 import { join } from "node:path";
-import { readFileSync } from "node:fs";
 import { dataDir, ensureBootstrap, getAuth, getDb } from "@/lib/server";
 import { guardRequest } from "@/lib/guard";
 
-/** GET /api/files/[id]/download — protected server-side download (FR-07.5). */
+/**
+ * GET /api/files/[id]/download — protected server-side download (FR-07.5).
+ *
+ * Task 1.8 (remediation #13): the route serves through FileStore so the
+ * download inherits the SAME defences as every other read — storageKey
+ * format validation, realpath/symlink containment, owner ACL and streaming
+ * — instead of a bare `join(dataDir(), "files", storage_key)` + readFileSync
+ * that bypassed the store's validation layers.
+ */
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -22,27 +28,22 @@ export async function GET(
   if (!guard.ok) {
     return NextResponse.json({ error: guard.reason }, { status: guard.status });
   }
-  // Ownership check via metadata, then stream from the store root.
-  const row = rawQuery<{ storage_key: string; filename: string; mime: string }>(
-    getDb(),
-    "SELECT storage_key, filename, mime FROM files WHERE id = ? AND owner_id = ? AND deleted_at IS NULL",
-    id,
-    guard.context.userId,
-  )[0];
-  if (!row) {
-    return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
-  }
-  void FileStore;
+  const store = new FileStore(join(dataDir(), "files"), getDb());
   try {
-    const path = join(dataDir(), "files", row.storage_key);
-    const bytes = readFileSync(path);
-    return new NextResponse(new Uint8Array(bytes), {
+    const dl = await store.openDownload(guard.context.userId, id);
+    return new NextResponse(dl.stream as unknown as ReadableStream<Uint8Array>, {
       headers: {
-        "content-type": row.mime,
-        "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(row.filename)}`,
+        "content-type": dl.mime,
+        "content-length": String(dl.size),
+        "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(dl.filename)}`,
       },
     });
-  } catch {
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    // NOT_FOUND and FORBIDDEN both map to 404 (no file-existence leak).
+    if (code === "NOT_FOUND" || code === "FORBIDDEN") {
+      return NextResponse.json({ error: code }, { status: 404 });
+    }
     return NextResponse.json({ error: "storage error" }, { status: 500 });
   }
 }

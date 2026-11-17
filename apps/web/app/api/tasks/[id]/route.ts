@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
+import { rawQuery } from "@forgegent/db";
 import { cancelTask, continueTask, getTaskForUser } from "@forgegent/tasks";
 import { guardRequest } from "@/lib/guard";
 import { ensureBootstrap, getAuth, getDb } from "@/lib/server";
 
-/** GET /api/tasks/[id] — task detail (owner/admin only, N7). */
+/** GET /api/tasks/[id] — task detail + output artifacts (owner/admin, N7). */
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -25,7 +26,17 @@ export async function GET(
       userId: guard.context.userId,
       roles: guard.context.roles,
     });
-    return NextResponse.json({ task });
+    // Remediation 2.14: the task's produced artifacts (成果区) — downloads
+    // go through the ACL-checked file endpoint.
+    const outputFiles = rawQuery(
+      getDb(),
+      `SELECT f.id, f.filename, f.mime, f.size
+       FROM task_file_refs r JOIN files f ON f.id = r.file_id
+       WHERE r.task_id = ? AND r.direction = 'output' AND f.deleted_at IS NULL
+       ORDER BY f.created_at`,
+      id,
+    );
+    return NextResponse.json({ task, outputFiles });
   } catch {
     return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   }

@@ -53,9 +53,17 @@ export function validateImagePayload(b64: string): { ok: true; mime: string } | 
   return { ok: false, error: "unrecognized image format" };
 }
 
+/** Persistence for idempotency records (remediation 4.5, FR-06.8): the
+ *  runner injects a DB-backed store so records survive restarts. */
+export interface IdempotencyPersistence {
+  get(key: string): ImageResult | undefined;
+  set(key: string, result: ImageResult): void;
+}
+
 export function createPosterTool(
   config: ImageToolConfig,
   fetchImpl: typeof fetch = fetch,
+  persistence?: IdempotencyPersistence,
 ): PosterTool & {
     takeArtifact(key: string): { b64: string; mimeType: string } | null;
     drainArtifacts(): { b64: string; mimeType: string }[];
@@ -141,15 +149,18 @@ export function createPosterTool(
       if (!prompt || !key) {
         return "error: prompt and key are required";
       }
-      // Idempotency (FR-06.8): same key never bills twice.
-      const cached = cache.get(key);
+      // Idempotency (FR-06.8): same key never bills twice — in-process
+      // cache first, then the persistent record (survives Runner restarts).
+      const cached = cache.get(key) ?? persistence?.get(key);
       if (cached) {
+        if (cached.ok) cache.set(key, cached);
         return cached.ok
           ? `cached:${key}: image already generated (${cached.mimeType})`
           : `cached-failure:${key}: ${cached.error}`;
       }
       const result = await generateOnce(prompt);
       cache.set(key, result);
+      persistence?.set(key, result);
       if (!result.ok) return `error: ${result.error}`;
       return `generated:${key}:${result.mimeType}:${result.b64!.length} bytes (b64 stored)`;
     },

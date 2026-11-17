@@ -11,6 +11,31 @@ export function dataDir(): string {
   return process.env.FORGEGENT_DATA_DIR ?? join(process.cwd(), "data");
 }
 
+/**
+ * R4.10: upload policy from server-side configuration (admin-adjustable,
+ * effective on restart): FORGEGENT_MAX_FILE_MB / FORGEGENT_USER_QUOTA_GB,
+ * and optional FORGEGENT_FILE_EXT_ALLOW (comma list → strict allow-mode;
+ * unset → default deny-list of executables/scripts).
+ */
+export function uploadPolicy(): {
+  maxFileBytes: number;
+  maxUserBytes: number;
+  allowedExtensions?: string[];
+} {
+  const maxFileBytes = Math.max(1, Number(process.env.FORGEGENT_MAX_FILE_MB ?? 50)) * 1024 * 1024;
+  const maxUserBytes =
+    Math.max(0.1, Number(process.env.FORGEGENT_USER_QUOTA_GB ?? 2)) * 1024 * 1024 * 1024;
+  const allow = (process.env.FORGEGENT_FILE_EXT_ALLOW ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return {
+    maxFileBytes,
+    maxUserBytes,
+    ...(allow.length > 0 ? { allowedExtensions: allow } : {}),
+  };
+}
+
 let dbPromise: ReturnType<typeof createDb> | null = null;
 let authPromise: Auth | null = null;
 let releaseStore: ReleaseStore | null = null;

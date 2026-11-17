@@ -25,7 +25,26 @@ export interface ProductionToolSpec {
   description: string;
   /** Extra TypeBox parameter fields (prompt/key are always present). */
   parameters?: Record<string, ReturnType<typeof Type.String>>;
+  /** Full parameter object schema — takes precedence over `parameters`
+   *  (used e.g. for declarative http tools with a JSON Schema, 2.9). */
+  parametersSchema?: ReturnType<typeof Type.Object>;
   execute: (args: Record<string, unknown>) => Promise<string>;
+}
+
+/** Re-export so platform packages can build tool schemas without a direct
+ *  typebox dependency edge. */
+export { Type } from "typebox";
+
+/** Convert a declarative JSON-Schema object (`{type:"object", properties}`)
+ *  into a TypeBox object schema for defineTool (remediation 2.9). */
+export function jsonSchemaToTypeObject(
+  schema: { type?: string; properties?: Record<string, unknown> },
+): ReturnType<typeof Type.Object> {
+  const props: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema.properties ?? {})) {
+    props[key] = Type.Unsafe(value as Parameters<typeof Type.Unsafe>[0]);
+  }
+  return Type.Object(props as never) as ReturnType<typeof Type.Object>;
 }
 
 export interface ProductionSessionOptions {
@@ -36,6 +55,22 @@ export interface ProductionSessionOptions {
   tools: ProductionToolSpec[];
   /** Tool names the model may call (gateway-approved allowlist). */
   toolAllowlist: string[];
+  /**
+   * Release-pinned skills (remediation 2.6): markdown files already written
+   * to disk by the runner; injected via skillsOverride so NOTHING outside
+   * the approved list ever reaches the model (AT-09).
+   */
+  skillFiles?: { name: string; filePath: string; baseDir: string }[];
+  /**
+   * Remediation 2.12 (D35): per-task session directory + resume. When the
+   * session file for `resumeSessionId` exists under `sessionDir`, it is
+   * opened via SessionManager (native resume — history rehydrated, official
+   * context carrier per docs/sdk.md); otherwise a fresh session starts.
+   */
+  sessionDir?: string;
+  resumeSessionId?: string | null;
+  /** Best-effort abort (task 1.2): dispose the session and reject the run. */
+  signal?: AbortSignal;
   onEvent?: (event: { type: string; text?: string }) => void;
 }
 
@@ -78,6 +113,29 @@ export async function runProductionAgent(
     noThemes: true,
     noContextFiles: true,
     ...(options.systemPrompt ? { systemPrompt: options.systemPrompt } : {}),
+    // Remediation 2.6: the release-pinned skills replace any discovery —
+    // the override result is the ONLY source of skills for the session.
+    ...(options.skillFiles?.length
+      ? {
+          skillsOverride: () => ({
+            skills: options.skillFiles!.map((file) => ({
+              name: file.name,
+              description: file.name,
+              filePath: file.filePath,
+              baseDir: file.baseDir,
+              sourceInfo: {
+                path: file.filePath,
+                source: "forgegent-registry",
+                scope: "project" as const,
+                origin: "top-level" as const,
+                baseDir: file.baseDir,
+              },
+              disableModelInvocation: false,
+            })),
+            diagnostics: [],
+          }),
+        }
+      : {}),
   });
   await loader.reload();
 
@@ -86,9 +144,9 @@ export async function runProductionAgent(
       name: tool.name,
       label: tool.name,
       description: tool.description,
-      parameters: Type.Object(
-        tool.parameters ?? { prompt: Type.String(), key: Type.String() },
-      ),
+      parameters:
+        tool.parametersSchema ??
+        Type.Object(tool.parameters ?? { prompt: Type.String(), key: Type.String() }),
       async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
         const text = await tool.execute(params as Record<string, unknown>);
         return { content: [{ type: "text", text }], details: undefined };
@@ -96,10 +154,28 @@ export async function runProductionAgent(
     }),
   );
 
+  // Session manager: native resume when the session file exists (2.12),
+  // otherwise a fresh session in the (per-task) session directory.
+  let sessionManager = SessionManager.create(options.cwd, options.sessionDir);
+  if (options.resumeSessionId) {
+    try {
+      const existing = SessionManager.findById(
+        options.cwd,
+        options.resumeSessionId,
+        options.sessionDir,
+      );
+      if (existing) {
+        sessionManager = SessionManager.open(existing, options.sessionDir);
+      }
+    } catch {
+      /* resume target unreadable — fall back to a fresh session */
+    }
+  }
+
   const { session } = await createAgentSession({
     cwd: options.cwd,
     resourceLoader: loader,
-    sessionManager: SessionManager.create(options.cwd),
+    sessionManager,
     settingsManager: SettingsManager.inMemory(),
     modelRuntime: runtime,
     model,
@@ -121,7 +197,25 @@ export async function runProductionAgent(
         options.onEvent?.({ type });
       }
     });
-    await session.prompt(options.userPrompt);
+    // Best-effort abort (task 1.2): the signal rejects the race and the
+    // finally-block disposes the session, tearing down the in-flight run.
+    const abortPromise = options.signal
+      ? new Promise<never>((_, reject) => {
+          options.signal!.addEventListener(
+            "abort",
+            () => reject(new Error("run aborted (cancel/timeout signal)")),
+            { once: true },
+          );
+        })
+      : null;
+    try {
+      await (abortPromise
+        ? Promise.race([session.prompt(options.userPrompt), abortPromise])
+        : session.prompt(options.userPrompt));
+    } catch (error) {
+      unsubscribe();
+      throw error;
+    }
     unsubscribe();
     return {
       text: session.getLastAssistantText() ?? "",

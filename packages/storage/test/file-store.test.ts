@@ -65,7 +65,7 @@ describe("FileStore (task 1.7 — personal-files spec)", () => {
     await expect(
       store.put({
         ownerId: alice,
-        filename: "big.bin",
+        filename: "big.dat",
         mime: "application/octet-stream",
         bytes: Buffer.alloc(8),
       }),
@@ -198,5 +198,43 @@ describe("FileStore (task 1.7 — personal-files spec)", () => {
       .run();
     await store.softDelete("ref-user", id);
     expect(await store.list("ref-user")).toHaveLength(0);
+  });
+});
+
+describe("R4 task 4.10 — upload type whitelist & configurable quotas", () => {
+  it("default policy rejects executables/scripts, passes common types", async () => {
+    const db = createTestDb();
+    await db.insert(users).values({ id: "u", email: "u@wp.local" }).onConflictDoNothing();
+    const store = new FileStore(mkdtempSync(join(tmpdir(), "wp-")), db);
+    await expect(
+      store.put({ ownerId: "u", filename: "run.sh", mime: "text/x-sh", bytes: Buffer.from("ls") }),
+    ).rejects.toThrow(/TYPE_NOT_ALLOWED/);
+    await expect(
+      store.put({ ownerId: "u", filename: "tool.exe", mime: "application/octet-stream", bytes: Buffer.from("x") }),
+    ).rejects.toThrow(/TYPE_NOT_ALLOWED/);
+    const ok = await store.put({
+      ownerId: "u", filename: "需求.docx", mime: "application/vnd.openxmlformats...", bytes: Buffer.from("doc"),
+    });
+    expect(ok.id).toBeTruthy();
+  });
+
+  it("explicit allowlist switches to strict mode; policy quotas are honored", async () => {
+    const db2 = createTestDb();
+    await db2.insert(users).values({ id: "u", email: "u@wp2.local" }).onConflictDoNothing();
+    const store = new FileStore(mkdtempSync(join(tmpdir(), "wp2-")), db2, {
+      maxFileBytes: 10,
+      maxUserBytes: 1024,
+      allowedExtensions: ["png", "txt"],
+    });
+    await expect(
+      store.put({ ownerId: "u", filename: "a.pdf", mime: "application/pdf", bytes: Buffer.from("x") }),
+    ).rejects.toThrow(/TYPE_NOT_ALLOWED/);
+    await expect(
+      store.put({ ownerId: "u", filename: "big.png", mime: "image/png", bytes: Buffer.alloc(64) }),
+    ).rejects.toThrow(/QUOTA_FILE_TOO_LARGE/);
+    const ok = await store.put({
+      ownerId: "u", filename: "fine.txt", mime: "text/plain", bytes: Buffer.alloc(8),
+    });
+    expect(ok.id).toBeTruthy();
   });
 });

@@ -1,3 +1,6 @@
 "0001_init.sql"
 "0002_auth.sql"
 "0003_studio.sql"
+"0004_skill_governance.sql"
+"0005_task_followup.sql"
+"0006_idempotency.sql"

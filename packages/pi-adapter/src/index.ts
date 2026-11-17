@@ -41,6 +41,8 @@ export type {
 export {
   runProductionAgent,
   PROVIDER_ID,
+  jsonSchemaToTypeObject,
+  Type,
 } from "./production.js";
 export type {
   ProductionToolSpec,

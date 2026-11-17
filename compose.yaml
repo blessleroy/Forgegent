@@ -32,13 +32,41 @@ services:
     environment:
       FORGEGENT_DATA_DIR: /data
       FORGEGENT_MAX_CONCURRENCY: ${FORGEGENT_MAX_CONCURRENCY:-5}
+      # The model key is resolved server-side from env at call time (D11) —
+      # the runner executes the calls, so it needs the env too.
+      FORGEGENT_MODEL_API_KEY: ${FORGEGENT_MODEL_API_KEY:-}
+      # R3 sandbox (D36): image must be prebuilt (`docker build --target
+      # sandbox-base -t forgegent-sandbox:1 .`) — never pulled per task.
+      FORGEGENT_SANDBOX_IMAGE: ${FORGEGENT_SANDBOX_IMAGE:-forgegent-sandbox:1}
+      FORGEGENT_SANDBOX_NETWORK: forgegent-internal
+      FORGEGENT_PROXY_PORT: "8788"
+      # How sandboxed containers reach the runner's controlled proxy on the
+      # internal network (compose service name).
+      FORGEGENT_SANDBOX_PROXY_URL: http://runner:8788
       NODE_ENV: production
+    extra_hosts:
+      # Linux: reach the host-side smoke mock endpoint (Docker Desktop
+      # resolves host.docker.internal natively).
+      - "host.docker.internal:host-gateway"
     volumes:
       - forgegent-data:/data
+      # Control-plane access to the (Rootless) Docker daemon — NOT mounted
+      # into sandbox containers themselves. Leave unset on hosts without
+      # docker to run restricted-only (sandboxed tasks fail structurally).
+      - ${FORGEGENT_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+    networks:
+      - default
+      - forgegent-internal
     depends_on:
       web:
         condition: service_healthy
     restart: unless-stopped
+
+networks:
+  # No external route: the ONLY reachable peer is the runner's controlled
+  # proxy (egress whitelist per release, D36).
+  forgegent-internal:
+    internal: true
 
 volumes:
   forgegent-data:

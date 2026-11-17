@@ -16,7 +16,6 @@
   },
   "dependencies": {
     "@forgegent/db": "workspace:*",
-    "@forgegent/registry": "workspace:*",
     "@forgegent/shared": "workspace:*"
   },
   "devDependencies": {

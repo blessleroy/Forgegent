@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { audit } from "@forgegent/db";
+import { audit, rawExec } from "@forgegent/db";
 import {
   delistAgent,
   rollbackToRelease,
@@ -46,12 +46,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: guard.reason }, { status: guard.status });
   }
   const body = (await request.json().catch(() => null)) as {
-    action?: "set-grants" | "delist" | "rollback";
+    action?: "set-grants" | "delist" | "rollback" | "set-category" | "create-category";
     agentId?: string;
     grants?: { subjectType: string; subjectId?: string }[];
     releaseId?: string;
+    categoryId?: string | null;
+    categoryName?: string;
   } | null;
-  if (!body?.action || !body?.agentId) {
+  if (!body?.action || !body.agentId) {
     return NextResponse.json(
       { error: "action and agentId are required" },
       { status: 400 },
@@ -74,6 +76,24 @@ export async function POST(request: Request) {
               },
       );
       await setAgentGrants(db, { agentId: body.agentId, grants });
+    } else if (body.action === "set-category") {
+      // N9: admin-assigned Hub category (nullable → 未分类).
+      rawExec(
+        db,
+        "UPDATE agents SET category_id = ? WHERE id = ?",
+        body.categoryId ?? null,
+        body.agentId,
+      );
+    } else if (body.action === "create-category") {
+      if (!body.categoryName?.trim()) throw new Error("categoryName required");
+      const id = `cat-${crypto.randomUUID().slice(0, 8)}`;
+      rawExec(
+        db,
+        "INSERT INTO categories (id, name) VALUES (?, ?)",
+        id,
+        body.categoryName.trim(),
+      );
+      return NextResponse.json({ ok: true, categoryId: id });
     } else if (body.action === "delist") {
       await delistAgent(db, { agentId: body.agentId, adminId: guard.context.userId });
     } else if (body.action === "rollback") {

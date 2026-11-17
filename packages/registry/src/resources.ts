@@ -113,6 +113,22 @@ export function egressAllowlistForRelease(db: ForgegentDb, releaseId: string): s
     .filter((host): host is string => Boolean(host));
 }
 
+/** Built-in platform tools the executor can actually wire (remediation 2.8+). */
+export const PLATFORM_BUILTIN_TOOLS = [
+  "image.generate",
+  "document.export",
+  "resources.search",
+] as const;
+
+/** All declared http tool ids (`http.<name>`) — externally effective, so
+ *  referencing one requires a prior admin declaration (D37). */
+export function declaredHttpToolIds(db: ForgegentDb): string[] {
+  return rawQuery<{ name: string }>(
+    db,
+    "SELECT name FROM resources WHERE kind = 'http_tool'",
+  ).map((r) => `http.${r.name}`);
+}
+
 /* ---------------------------- shared docs (8.4) ---------------------------- */
 
 export interface SharedDocEntry {

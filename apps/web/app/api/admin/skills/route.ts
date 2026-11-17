@@ -61,7 +61,6 @@ export async function POST(request: Request) {
     builderId?: string;
     skillName?: string;
     version?: string;
-    markdown?: string;
     note?: string;
   } | null;
   if (!body?.action) {
@@ -73,13 +72,14 @@ export async function POST(request: Request) {
       if (!body.submissionId) {
         return NextResponse.json({ error: "submissionId required" }, { status: 400 });
       }
+      // Remediation 2.5: the published package IS the submitted content —
+      // no markdown is accepted from the review request itself.
       const outcome = await reviewSkillSubmission(db, skillStore, {
         submissionId: body.submissionId,
         reviewerId: guard.context.userId,
         decision: body.action,
         skillName: body.skillName ?? `skill-${body.submissionId.slice(0, 8)}`,
         version: body.version ?? "1.0.0",
-        pkg: { name: body.skillName ?? "skill", markdown: body.markdown ?? "# Skill" },
         note: body.note,
       });
       return NextResponse.json(outcome);

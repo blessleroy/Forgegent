@@ -345,6 +345,9 @@ importers:
       '@forgegent/shared':
         specifier: workspace:*
         version: link:../shared
+      '@forgegent/skills':
+        specifier: workspace:*
+        version: link:../skills
       better-sqlite3:
         specifier: 13.1.1
         version: 13.1.1
@@ -383,9 +386,6 @@ importers:
       '@forgegent/db':
         specifier: workspace:*
         version: link:../db
-      '@forgegent/registry':
-        specifier: workspace:*
-        version: link:../registry
       '@forgegent/shared':
         specifier: workspace:*
         version: link:../shared
@@ -407,7 +407,7 @@ importers:
         version: link:../shared
       drizzle-orm:
         specifier: ^0.38.0
-        version: 0.38.4(@types/better-sqlite3@7.6.13)(@types/react@19.3.0)(better-sqlite3@13.1.1)(react@19.3.1)
+        version: 0.38.4(@types/better-sqlite3@7.6.13)(@types/react@19.3.0)(better-sqlite3@13.1.1)(kysely@0.29.8)(react@19.3.1)
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -3550,13 +3550,6 @@ snapshots:
       '@types/react': 19.3.0
       better-sqlite3: 13.1.1
       kysely: 0.29.8
-      react: 19.3.1
-
-  drizzle-orm@0.38.4(@types/better-sqlite3@7.6.13)(@types/react@19.3.0)(better-sqlite3@13.1.1)(react@19.3.1):
-    optionalDependencies:
-      '@types/better-sqlite3': 7.6.13
-      '@types/react': 19.3.0
-      better-sqlite3: 13.1.1
       react: 19.3.1
 
   ecdsa-sig-formatter@1.0.11:

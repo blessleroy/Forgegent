@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { createDraftTestRun, readConversation, submitWithGate } from "@forgegent/studio";
+import {
+  createDraftTestRun,
+  readConversation,
+  resolveBuilderBackend,
+  submitWithGate,
+} from "@forgegent/studio";
 import { guardRequest } from "@/lib/guard";
 import { ensureBootstrap, getAuth, getDb, getReleaseStore } from "@/lib/server";
 
@@ -31,6 +36,8 @@ export async function POST(
       const { submitted, gate } = await submitWithGate(getDb(), {
         draftId: id,
         builderId: guard.context.userId,
+        store: getReleaseStore(),
+        backendMode: resolveBuilderBackend(getDb()).kind,
       });
       return NextResponse.json({ submitted, gate });
     }
@@ -48,7 +55,8 @@ export async function POST(
   }
 }
 
-/** GET — conversation log for this draft (owner-only, N4). */
+/** GET — conversation log + draft payload (owner-only, N4). The payload
+ *  powers the employee-view preview (R4.1). */
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -64,5 +72,16 @@ export async function GET(
   if (!guard.ok) {
     return NextResponse.json({ error: guard.reason }, { status: guard.status });
   }
-  return NextResponse.json({ messages: readConversation(getDb(), id) });
+  const row = (
+    getDb() as unknown as {
+      $client: { prepare(s: string): { get(...p: unknown[]): unknown } };
+    }
+  ).$client
+    .prepare("SELECT draft_payload, review_note FROM agent_drafts WHERE id = ?")
+    .get(id) as { draft_payload: string; review_note: string | null } | undefined;
+  return NextResponse.json({
+    messages: readConversation(getDb(), id),
+    payload: row ? JSON.parse(row.draft_payload) : null,
+    reviewNote: row?.review_note ?? null,
+  });
 }

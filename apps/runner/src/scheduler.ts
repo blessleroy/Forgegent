@@ -35,6 +35,9 @@ export interface SchedulerDeps {
     state: "completed" | "failed" | "cancelled" | "interrupted" | "running" | "waiting_input",
   ): boolean;
   reclaim(): string[];
+  /** Remediation 2.13: keep long runs leased (renewLease) — optional so
+   *  test doubles keep working without it. */
+  renew?(taskId: string, owner: string, leaseSeconds: number): boolean;
 }
 
 export class Scheduler {
@@ -71,8 +74,9 @@ export class Scheduler {
     this.ticking = true;
     try {
       this.deps.reclaim();
-      // Keep filling freed slots until the queue is drained: a single tick
-      // processes as many tasks as the concurrency cap allows, in waves.
+      // Fill every free slot, then wait for ANY completion before refilling
+      // (2.13): a fast task finishing never idles a slot until its slow
+      // siblings settle. The loop drains the queue within one tick.
       for (;;) {
         while (this.active.size < this.config.maxConcurrency) {
           const task = this.deps.claim(this.owner, this.config.leaseSeconds);
@@ -84,7 +88,7 @@ export class Scheduler {
           void run.catch(() => undefined);
         }
         if (this.active.size === 0) break;
-        await Promise.allSettled([...this.active.values()]);
+        await Promise.race([...this.active.values()]);
       }
     } finally {
       this.ticking = false;
@@ -92,11 +96,21 @@ export class Scheduler {
   }
 
   private async execute(task: ClaimedTask): Promise<void> {
+    // Self-renewal (2.13): the lease outlives reclaim sweeps for as long as
+    // the run is genuinely alive — a long task is never interrupted by its
+    // own lease expiring.
+    const renewTimer =
+      this.deps.renew &&
+      setInterval(() => {
+        this.deps.renew!(task.id, this.owner, this.config.leaseSeconds);
+      }, Math.max(1, Math.floor((this.config.leaseSeconds * 1000) / 2)));
     let outcome: HandlerOutcome;
     try {
       outcome = await this.handler(task);
     } catch {
       outcome = "failed";
+    } finally {
+      if (renewTimer) clearInterval(renewTimer);
     }
     this.deps.finish(task.id, this.owner, outcome);
   }

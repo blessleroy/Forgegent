@@ -277,6 +277,11 @@ export const skillVersions = sqliteTable(
     checksum: text("checksum").notNull(),
     /** published | revoked (D18: revoke blocks new bindings only). */
     status: text("status").notNull().default("published"),
+    /** Remediation 2.7: package ships executable/dependency files → the
+     *  binding agent must run sandboxed (FR-04.5). */
+    isScripted: integer("is_scripted").notNull().default(0),
+    /** Remediation 2.5: revocations are attributable (D18 audit trail). */
+    revokedBy: text("revoked_by"),
     ...timestamps,
   },
   (t) => [uniqueIndex("skill_versions_uq").on(t.skillId, t.version)],
@@ -366,6 +371,12 @@ export const tasks = sqliteTable(
     leaseOwner: text("lease_owner"),
     leaseUntil: integer("lease_until", { mode: "timestamp_ms" }),
     sessionId: text("session_id"),
+    /**
+     * Remediation 2.12: queued employee follow-up messages (continue/
+     * waiting_input replies), consumed by the runner on the next round so
+     * they actually reach the model (AT-13 real semantics).
+     */
+    pendingFollowup: text("pending_followup"),
     ...timestamps,
   },
   (t) => [

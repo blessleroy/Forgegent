@@ -8,3 +8,13 @@
 {"ts": "2026-11-12T18:24:03", "phase": "6", "dep": "subagent-review", "kind": "subagent", "method": "agent", "summary": "四视角子代理审查 forgegent-v1-platform artifacts"}
 {"ts": "2026-11-12T18:34:06", "phase": "6", "dep": "openspec-cli", "kind": "cli", "method": "bash", "cmd": "openspec validate --strict / status", "exit": 0, "summary": "Phase 6 复验: validate --strict 零警告通过, 4/4 artifacts, 17 项审查问题全部修正"}
 {"ts": "2026-11-12T20:32:18", "phase": "7", "dep": "openspec-apply-change", "kind": "skill-load", "method": "skill-tool", "summary": "用户批准后进入实施: 加载 apply 工作流, 从 tasks.md M0 组 1 起步"}
+{"ts": "2026-11-16T10:10:07", "phase": "2", "dep": "grilling", "kind": "skill-load", "method": "file-read", "summary": "第二轮 remediation 访谈: 加载 grilling 原文（design tree/frontier 机制）"}
+{"ts": "2026-11-16T10:10:08", "phase": "2", "dep": "domain-modeling", "kind": "skill-load", "method": "file-read", "summary": "已有代码库: 叠加 domain-modeling（术语沿用上轮 SPEC，无新模糊术语待澄清）"}
+{"ts": "2026-11-16T10:14:50", "phase": "2", "dep": "grilling", "kind": "subagent", "method": "agent", "summary": "事实自查: pi SDK 1.5.2 会话恢复能力核实（SessionManager.open/continueRecent 原生支持, 多轮 prompt 上下文延续; continueSession JSDoc 为过时注释）"}
+{"ts": "2026-11-16T10:24:35", "phase": "3", "dep": "think", "kind": "skill-load", "method": "file-read", "summary": "Phase 3: 加载 think 原文（全模式: 3 个技术取向各有实质取舍; Preflight: 仓库无 AGENTS/CLAUDE 索引）"}
+{"ts": "2026-11-16T10:41:57", "phase": "4", "dep": "acceptance-review", "kind": "subagent", "method": "agent", "summary": "反向验收: 1 blocking(B1 生成型Skill审核路径) + 9 major(M1-M9) + 3 minor(m1-m3); major 中 8 项可推导, M5b 随 blocking 一并澄清"}
+{"ts": "2026-11-16T10:50:50", "phase": "5", "dep": "openspec-archive-change", "kind": "skill-load", "method": "file-read", "summary": "D32 归档旧 change: 加载 openspec-archive-change 工作流原文"}
+{"ts": "2026-11-16T11:44:34", "phase": "6", "dep": "openspec-cli", "kind": "cli", "method": "bash", "cmd": "openspec validate --strict", "exit": 0, "summary": "validate --strict 通过（首轮 4 处 MODIFIED 场景遗漏已补回）"}
+{"ts": "2026-11-16T11:44:53", "phase": "6", "dep": "openspec-cli", "kind": "cli", "method": "bash", "cmd": "openspec validate --strict", "exit": 1, "summary": "更正: 上笔'通过'记录有误——validate 仍报 agent-registry 审核需求场景遗漏, 继续修复中"}
+{"ts": "2026-11-16T11:45:28", "phase": "5", "dep": "openspec-cli", "kind": "cli", "method": "bash", "cmd": "openspec validate forgegent-v1-remediation --strict", "exit": 0, "summary": "validate --strict 通过（MODIFIED 场景遗漏 5 处全部补回基线场景）"}
+{"ts": "2026-11-17T15:59:31", "phase": "7", "dep": "openspec-cli", "kind": "cli", "method": "bash", "cmd": "openspec archive forgegent-v1-remediation -y", "exit": 0, "summary": "归档成功: specs 同步 10 added + 43 modified; change → archive/2026-11-17-forgegent-v1-remediation"}

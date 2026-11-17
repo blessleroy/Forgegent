@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
-import { submitDraft, withdrawDraft } from "@forgegent/registry";
+import { withdrawDraft } from "@forgegent/registry";
+import { resolveBuilderBackend, submitWithGate } from "@forgegent/studio";
 import { guardRequest } from "@/lib/guard";
-import { ensureBootstrap, getAuth, getDb } from "@/lib/server";
+import { ensureBootstrap, getAuth, getDb, getReleaseStore } from "@/lib/server";
 
-/** POST /api/studio/drafts/[id]/submit — submit for review (owner only). */
+/** POST /api/studio/drafts/[id]/submit — submit for review (owner only).
+ *  Remediation 4.2: submissions run through the REAL gate (static checks +
+ *  isolated test run when online / offline label, D41/N5). */
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -23,17 +26,20 @@ export async function POST(
     action?: "submit" | "withdraw";
   };
   try {
-    const draft =
-      body.action === "withdraw"
-        ? await withdrawDraft(getDb(), {
-            draftId: id,
-            builderId: guard.context.userId,
-          })
-        : await submitDraft(getDb(), {
-            draftId: id,
-            builderId: guard.context.userId,
-          });
-    return NextResponse.json(draft);
+    if (body.action === "withdraw") {
+      const draft = await withdrawDraft(getDb(), {
+        draftId: id,
+        builderId: guard.context.userId,
+      });
+      return NextResponse.json(draft);
+    }
+    const { submitted, gate } = await submitWithGate(getDb(), {
+      draftId: id,
+      builderId: guard.context.userId,
+      store: getReleaseStore(),
+      backendMode: resolveBuilderBackend(getDb()).kind,
+    });
+    return NextResponse.json({ ...submitted, gate });
   } catch (error) {
     const code = (error as { code?: string }).code ?? "ERROR";
     return NextResponse.json({ error: code }, { status: 400 });

@@ -9,9 +9,10 @@
  *   server-side source of truth, never the client.
  */
 import { betterAuth } from "better-auth";
+import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { randomUUID } from "node:crypto";
-import { accounts, sessions, users, verifications } from "@forgegent/db";
+import { accounts, isUserActive, sessions, users, verifications } from "@forgegent/db";
 import type { ForgegentDb } from "@forgegent/db";
 
 /** SQLite-backed secondary storage: sessions + rate limits survive restarts. */
@@ -108,6 +109,20 @@ export function createAuth(
         mustChangePassword: { type: "boolean", input: false },
       },
     },
+    databaseHooks: {
+      session: {
+        create: {
+          // Task 1.5 (D22): disabled users are rejected at the auth layer —
+          // no new session is ever issued for them (business APIs were
+          // already guarded; this closes the auth-endpoint hole).
+          before: async (session) => {
+            if (!(await isUserActive(db, session.userId))) {
+              throw new APIError("FORBIDDEN", { message: "user-disabled" });
+            }
+          },
+        },
+      },
+    },
     session: {
       expiresIn: 60 * 60 * 24 * 7, // 7 days
       updateAge: 60 * 60 * 24,
@@ -118,6 +133,13 @@ export function createAuth(
       window: 60,
       max: options?.rateLimitMax ?? 10,
       storage: "secondary-storage",
+      // Every guarded API call resolves its session through /get-session —
+      // the generic per-IP cap would throttle normal browsing to 10 API
+      // calls/minute (found by the AT-20 smoke). Brute-force protection is
+      // unaffected: /sign-in/* keeps the built-in strict special rule.
+      customRules: {
+        "/get-session": { window: 60, max: 100_000 },
+      },
     },
     secondaryStorage: sqliteStorage(sqlite),
     trustedOrigins,

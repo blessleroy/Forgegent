@@ -49,7 +49,7 @@ describe("skill registry (tasks 8.1/8.2 — AT-09, D18)", () => {
   });
 
   it("AT-09 (front): unreviewed submissions never enter the production loader", async () => {
-    const { submissionId } = submitSkill(db, {
+    const { submissionId } = submitSkill(db, store, {
       submitterId: submitter,
       pkg: pkg("pending-skill"),
     });
@@ -62,7 +62,7 @@ describe("skill registry (tasks 8.1/8.2 — AT-09, D18)", () => {
   });
 
   it("AT-09 (back): approved submissions publish + become bindable", async () => {
-    const { submissionId } = submitSkill(db, {
+    const { submissionId } = submitSkill(db, store, {
       submitterId: submitter,
       pkg: pkg("poster-design"),
     });
@@ -92,7 +92,7 @@ describe("skill registry (tasks 8.1/8.2 — AT-09, D18)", () => {
   });
 
   it("rejection keeps the reviewer note", async () => {
-    const { submissionId } = submitSkill(db, {
+    const { submissionId } = submitSkill(db, store, {
       submitterId: submitter,
       pkg: pkg("bad-skill"),
     });
@@ -116,7 +116,7 @@ describe("skill registry (tasks 8.1/8.2 — AT-09, D18)", () => {
   });
 
   it("D18: revocation blocks new bindings but existing releases keep loading", async () => {
-    const { submissionId } = submitSkill(db, {
+    const { submissionId } = submitSkill(db, store, {
       submitterId: submitter,
       pkg: pkg("doc-format"),
     });
@@ -147,7 +147,7 @@ describe("skill registry (tasks 8.1/8.2 — AT-09, D18)", () => {
   });
 
   it("checksum mismatches are blocked (tamper protection)", async () => {
-    const { submissionId } = submitSkill(db, {
+    const { submissionId } = submitSkill(db, store, {
       submitterId: submitter,
       pkg: pkg("tampered"),
     });
